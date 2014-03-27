@@ -1,13 +1,11 @@
 #ifndef EAUDIT_H
 #define EAUDIT_H
 
-void EAUDIT_push();
-void EAUDIT_pop(const char* func_name);
+struct siginfo_t;
+
 void EAUDIT_shutdown();
 
-/*void overflow(int eventset, void* address, long long overflow_vector, 
-              void* context);*/
-void overflow(int signum);
+void overflow(int signum, siginfo_t* info, void* context);
 void init_papi(int* eventset);
 void read_rapl();
 
