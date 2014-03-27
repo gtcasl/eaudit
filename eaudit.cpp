@@ -53,24 +53,18 @@ stack<long long, vector<long long> >& cur_time(){
 }
 
 struct stats_t{
+  string name;
   long long package_energy;
   long long pp0_energy;
   long long time;
-  stats_t(long long pae, long long ppe, long long t) : package_energy{pae}, pp0_energy{ppe}, time{t} {}
-  stats_t() : package_energy{0}, pp0_energy{0}, time{0} {}
+  stats_t(string n, long long pae, long long ppe, long long t) : name{n}, package_energy{pae}, pp0_energy{ppe}, time{t} {}
+  stats_t() : name{""}, package_energy{0}, pp0_energy{0}, time{0} {}
 };
 
-#ifdef EAUDIT_RECORD_ALL
-map<string, vector<stats_t> >& total_stats(){
-  static map<string, vector<stats_t> > total_stats_;
+vector<stats_t>& total_stats(){
+  static vector<stats_t> total_stats_;
   return total_stats_;
 }
-#else
-map<string, stats_t>& total_stats(){
-  static map<string, stats_t> total_stats_;
-  return total_stats_;
-}
-#endif
 
 int* get_eventset(){
   static int eventset = PAPI_NULL;
@@ -187,13 +181,25 @@ void EAUDIT_push(){
 void EAUDIT_pop(const char* func_name){
   print("popping %s\n", func_name);
   read_rapl();
-#ifdef EAUDIT_RECORD_ALL
-  total_stats()[func_name].emplace_back(cur_package_energy().top(), cur_pp0_energy().top(), cur_time().top());
-#else
-  total_stats()[func_name].package_energy += cur_package_energy().top();
-  total_stats()[func_name].pp0_energy += cur_pp0_energy().top();
-  total_stats()[func_name].time += cur_time().top();
-#endif
+  int found = -1;
+  for(auto i = 0; i < total_stats().size(); ++i){
+    if(total_stats()[i].name == func_name){
+      found = i;
+      break;
+    }
+  }
+
+  stats_t* curstats;
+  if(found == -1){
+    total_stats().emplace_back(func_name, 0, 0, 0);
+    curstats = &total_stats().back();
+  } else {
+    curstats = &total_stats()[found];
+  }
+
+  curstats->package_energy += cur_package_energy().top();
+  curstats->pp0_energy += cur_pp0_energy().top();
+  curstats->time += cur_time().top();
   cur_package_energy().pop();
   cur_pp0_energy().pop();
   cur_time().pop();
@@ -202,52 +208,18 @@ void EAUDIT_pop(const char* func_name){
 void EAUDIT_shutdown(){
   print("shutdown\n");
 
-#ifdef EAUDIT_RECORD_ALL
-  vector<pair<string, vector<stats_t> > > stats;
-#else
-  vector<pair<string, stats_t> > stats;
-#endif
-  for(auto& func : total_stats()){
-    auto name = demangle_func_name(func.first);
-    stats.emplace_back(name, func.second);
-  }
-
+  auto stats = total_stats();
   stable_sort(stats.begin(), stats.end(),
-#ifdef EAUDIT_RECORD_ALL
-      [](const pair<string, vector<stats_t> >& a,
-         const pair<string, vector<stats_t> >& b){
-        stats_t sum_a = accumulate(a.second.begin(), a.second.end(), stats_t{0,0,0},
-          [](const stats_t& x, const stats_t& y){ return stats_t{x.package_energy + y.package_energy, 
-                                                                 x.pp0_energy + y.pp0_energy,
-                                                                 x.time + y.time}; });
-        stats_t sum_b = accumulate(b.second.begin(), b.second.end(), stats_t{0,0,0},
-          [](const stats_t& x, const stats_t& y){ return stats_t{x.package_energy + y.package_energy, 
-                                                                 x.pp0_energy + y.pp0_energy,
-                                                                 x.time + y.time}; });
-        return sum_a.time > sum_b.time;
-      }
-#else
-      [](const pair<string, stats_t>& a,
-         const pair<string, stats_t>& b){ return a.second.time > b.second.time; }
-#endif
+      [](const stats_t& a,
+         const stats_t& b){ return a.time > b.time; }
       );
 
   double total_time = 0, total_package_energy = 0, total_pp0_energy = 0;
-#ifdef EAUDIT_RECORD_ALL
   for(const auto& func : stats){
-    for(const auto& stat : func.second){
-      total_time += stat.time;
-      total_package_energy += stat.package_energy;
-      total_pp0_energy += stat.pp0_energy;
-    }
+    total_time += func.time;
+    total_package_energy += func.package_energy;
+    total_pp0_energy += func.pp0_energy;
   }
-#else
-  for(const auto& func : stats){
-    total_time += func.second.time;
-    total_package_energy += func.second.package_energy;
-    total_pp0_energy += func.second.pp0_energy;
-  }
-#endif
 
   ofstream myfile;
   myfile.open("eaudit.tsv");
@@ -260,58 +232,18 @@ void EAUDIT_shutdown(){
          << "\t" << "% PP0 Energy"
          << "\t" << "Package Power(w)" 
          << "\t" << "PP0 Power(w)" 
-#ifdef EAUDIT_RECORD_ALL
-         << "\t" << "# Calls" 
-         << "\t" << "Time Avg" 
-         << "\t" << "Time Stddev"
-         << "\t" << "Package Energy Avg"
-         << "\t" << "PP0 Energy Avg"
-         << "\t" << "Package Energy Stddev" 
-         << "\t" << "PP0 Energy Stddev" 
-#endif
          << endl;
   for(auto& func : stats){
-#ifdef EAUDIT_RECORD_ALL
-    stats_t sum = accumulate(func.second.begin(), func.second.end(), stats_t{0,0,0},
-        [](stats_t& x, stats_t& y){ 
-          return stats_t{x.package_energy + y.package_energy, 
-                         x.pp0_energy + y.pp0_energy,
-                         x.time + y.time}; 
-        });
-    double package_energy_avg = sum.package_energy / (double) func.second.size();
-    double pp0_energy_avg = sum.pp0_energy / (double) func.second.size();
-    double time_avg = sum.time / (double) func.second.size();
-    double package_energy_dev = 0, pp0_energy_dev = 0, time_dev = 0;
-    for(auto& val : func.second){
-      package_energy_dev += pow(val.package_energy - package_energy_avg, 2);
-      pp0_energy_dev += pow(val.pp0_energy - pp0_energy_avg, 2);
-      time_dev += pow(val.time - time_avg, 2);
-    }
-    package_energy_dev = sqrt(package_energy_dev / func.second.size());
-    pp0_energy_dev = sqrt(pp0_energy_dev / func.second.size());
-    time_dev = sqrt(time_dev / func.second.size());
-#else
-    stats_t sum{func.second.package_energy, func.second.pp0_energy, func.second.time};
-#endif
-    if(sum.time == 0) continue;
-    myfile << func.first
-           << "\t" << sum.time * kNanoToBase
-           << "\t" << sum.package_energy * kNanoToBase
-           << "\t" << sum.pp0_energy * kNanoToBase
-           << "\t" << sum.time / total_time * 100.0
-           << "\t" << sum.package_energy / total_package_energy * 100.0
-           << "\t" << sum.pp0_energy / total_pp0_energy * 100.0
-           << "\t" << sum.package_energy/(double)sum.time 
-           << "\t" << sum.pp0_energy/(double)sum.time 
-#ifdef EAUDIT_RECORD_ALL
-           << "\t" << func.second.size()
-           << "\t" << time_avg * kNanoToBase 
-           << "\t" << time_dev * kNanoToBase
-           << "\t" << package_energy_avg * kNanoToBase 
-           << "\t" << pp0_energy_avg * kNanoToBase 
-           << "\t" << package_energy_dev * kNanoToBase
-           << "\t" << pp0_energy_dev * kNanoToBase
-#endif
+    if(func.time == 0) continue;
+    myfile << func.name
+           << "\t" << func.time * kNanoToBase
+           << "\t" << func.package_energy * kNanoToBase
+           << "\t" << func.pp0_energy * kNanoToBase
+           << "\t" << func.time / total_time * 100.0
+           << "\t" << func.package_energy / total_package_energy * 100.0
+           << "\t" << func.pp0_energy / total_pp0_energy * 100.0
+           << "\t" << func.package_energy/(double)func.time 
+           << "\t" << func.pp0_energy/(double)func.time 
            << endl;
   }
   myfile.close();
