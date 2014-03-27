@@ -11,8 +11,11 @@
 #include <fstream>
 #include <sys/time.h>
 #include <signal.h>
+#include <execinfo.h>
 #include <errno.h>
 #include <cstdio>
+
+#include <ucontext.h>
 
 #include "papi.h"
 #include <byfl-common.h>
@@ -31,6 +34,7 @@ const unsigned kSleepUsecs = 0;
 const double kNanoToBase = 1e-9;
 const long long kOneMS = 1000000;
 const long long kCounterMax = numeric_limits<unsigned int>::max();
+const int kMaxTrace = 30;
 }
 
 static long long last_read_time = 0LL;
@@ -100,8 +104,8 @@ void init_papi(int* eventset){
   // set up signal handler
   struct sigaction sa;
   sa.sa_sigaction = overflow;
-  sa_flags = SA_SIGINFO | SA_RESTART;
-  if(sigaction(SIGALRM, &sa, nullptr) == 0){
+  sa.sa_flags = SA_SIGINFO | SA_RESTART;
+  if(sigaction(SIGALRM, &sa, nullptr) != 0){
     fprintf(stderr, "Unable to set up signal handler\n");
     exit(-1);
   }
@@ -143,9 +147,12 @@ void read_rapl(){
   }
 }
 
+void EAUDIT_push() { int* tmp = get_eventset();};
+void EAUDIT_pop(const char* n) {};
+
 void EAUDIT_shutdown(){
   print("shutdown\n");
-
+/*
   vector<pair<string, stats_t> > stats;
   for(auto& func : total_stats()){
     auto name = demangle_func_name(func.first); // TODO: figure out demangling
@@ -191,12 +198,21 @@ void EAUDIT_shutdown(){
            << endl;
   }
   myfile.close();
+  */
 }
 
 void overflow(int signum, siginfo_t* info, void* context){
   if(signum == SIGALRM){
     print("overflow\n");
-    read_rapl();
+    ucontext_t* uc = (ucontext_t*) context;
+    void* trace[kMaxTrace];
+    int trace_size = backtrace(trace, kMaxTrace);
+    //trace[1] = (void*) uc->uc_mcontext.gregs[REG_RIP];
+    char** names = backtrace_symbols(trace, trace_size);
+    cout << "last " << trace_size << " frames:" << endl;
+    for(int i = 0; i < trace_size; ++i){
+      cout << names[i] << endl;
+    }
   }
 }
 
