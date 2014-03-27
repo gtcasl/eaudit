@@ -14,6 +14,10 @@ ifeq ($(RECORDALL),y)
 	EAFLAGS += -DEAUDIT_RECORD_ALL
 endif
 
+ifeq ($(GPROF),y)
+	CXXFLAGS = -g -O3 -pg -flto
+endif
+
 TARGET=test
 
 all: eaudit.o test.o
@@ -41,3 +45,6 @@ debug:
 
 drecordall:
 	$(MAKE) RECORDALL=y DEBUG=y
+
+gprof:
+	$(MAKE) GPROF=y
