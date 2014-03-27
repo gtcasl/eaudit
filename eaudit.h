@@ -1,7 +1,7 @@
 #ifndef EAUDIT_H
 #define EAUDIT_H
 
-struct siginfo_t;
+#include <signal.h>
 
 void EAUDIT_shutdown();
 

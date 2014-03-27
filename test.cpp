@@ -1,8 +1,15 @@
 #include <iostream>
-#include <unistd.h>
 
-void bar(int x){
-  sleep(x);
+void baz(){
+  while(1);
+}
+
+void bar(){
+  baz();
+}
+
+void foo(){
+  bar();
 }
 
 int main(){
@@ -11,9 +18,7 @@ int main(){
   int x = 0;
   int y = 1;
   int z = y + x;
-  bar(1);
-  bar(2);
-  bar(3);
+  foo();
 
   return 0;
 }

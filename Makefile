@@ -7,7 +7,7 @@ LDFLAGS=-L/usr/local/lib -l:libpapi.so.5
 
 ifeq ($(DEBUG),y)
 	EAFLAGS += -DDEBUG
-	CXXFLAGS = -g -O0
+	CXXFLAGS = -g -O0 -Wl,--export-dynamic
 endif
 
 ifeq ($(RECORDALL),y)
