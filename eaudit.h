@@ -9,6 +9,6 @@ void EAUDIT_shutdown();
               void* context);*/
 void overflow(int signum);
 void init_papi(int* eventset);
-void read_rapl();
+bool read_rapl();
 
 #endif // EAUDIT_H
