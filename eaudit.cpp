@@ -60,16 +60,12 @@ struct stats_t{
   stats_t() : package_energy{0}, pp0_energy{0}, time{0} {}
 };
 
+
+
 #ifdef EAUDIT_RECORD_ALL
-map<string, vector<stats_t> >& total_stats(){
-  static map<string, vector<stats_t> > total_stats_;
-  return total_stats_;
-}
+map<string, vector<stats_t> >* total_stats;
 #else
-map<string, stats_t>& total_stats(){
-  static map<string, stats_t> total_stats_;
-  return total_stats_;
-}
+map<string, stats_t>* total_stats;
 #endif
 
 int* get_eventset(){
@@ -131,6 +127,12 @@ void init_papi(int* eventset){
     exit(-1);
   }
 
+#ifdef EAUDIT_RECORD_ALL
+  total_stats = new map<string, vector<stats_t> >;
+#else
+  total_stats = new map<string, stats_t>;
+#endif
+
   // Set a dummy first element so that the first do_push has some place to put 
   // the previous function energy.
   cur_package_energy().push(0LL);
@@ -149,7 +151,7 @@ void init_papi(int* eventset){
   last_read_time = PAPI_get_real_nsec();
 }
 
-void read_rapl(){
+bool read_rapl(){
   long long curtime = PAPI_get_real_nsec();
   if(curtime - last_read_time > kOneMS){
     long long energy_val[2];
@@ -173,7 +175,9 @@ void read_rapl(){
     last_read_time = curtime;
     last_energy_value[0] = energy_val[0];
     last_energy_value[1] = energy_val[1];
+    return true;
   }
+  return false;
 }
 
 void EAUDIT_push(){
@@ -186,14 +190,17 @@ void EAUDIT_push(){
 
 void EAUDIT_pop(const char* func_name){
   print("popping %s\n", func_name);
-  read_rapl();
+  auto did_read = read_rapl();
+  if(did_read){
+    print("good read!\n");
 #ifdef EAUDIT_RECORD_ALL
-  total_stats()[func_name].emplace_back(cur_package_energy().top(), cur_pp0_energy().top(), cur_time().top());
+    (*total_stats)[func_name].emplace_back(cur_package_energy().top(), cur_pp0_energy().top(), cur_time().top());
 #else
-  total_stats()[func_name].package_energy += cur_package_energy().top();
-  total_stats()[func_name].pp0_energy += cur_pp0_energy().top();
-  total_stats()[func_name].time += cur_time().top();
+    (*total_stats)[func_name].package_energy += cur_package_energy().top();
+    (*total_stats)[func_name].pp0_energy += cur_pp0_energy().top();
+    (*total_stats)[func_name].time += cur_time().top();
 #endif
+  } 
   cur_package_energy().pop();
   cur_pp0_energy().pop();
   cur_time().pop();
@@ -201,16 +208,24 @@ void EAUDIT_pop(const char* func_name){
 
 void EAUDIT_shutdown(){
   print("shutdown\n");
+  struct itimerval work_time;
+  work_time.it_value.tv_sec = 0;
+  work_time.it_value.tv_usec = 0;
+  work_time.it_interval.tv_sec = 0;
+  work_time.it_interval.tv_usec = 0;
+  setitimer(ITIMER_REAL, &work_time, nullptr);
 
 #ifdef EAUDIT_RECORD_ALL
   vector<pair<string, vector<stats_t> > > stats;
 #else
   vector<pair<string, stats_t> > stats;
 #endif
-  for(auto& func : total_stats()){
+  for(auto& func : *total_stats){
     auto name = demangle_func_name(func.first);
     stats.emplace_back(name, func.second);
   }
+
+  delete total_stats;
 
   stable_sort(stats.begin(), stats.end(),
 #ifdef EAUDIT_RECORD_ALL
