@@ -1,5 +1,6 @@
 #include "eaudit.h"
 
+#include <cassert>
 #include <iomanip>
 #include <algorithm>
 #include <map>
@@ -15,8 +16,6 @@
 #include <errno.h>
 #include <cstdio>
 
-#include <ucontext.h>
-
 #include "papi.h"
 #include <byfl-common.h>
 
@@ -29,34 +28,29 @@
 using namespace std;
 
 namespace{
-const unsigned kSleepSecs = 2;
+const unsigned kSleepSecs = 1;
 const unsigned kSleepUsecs = 0;
 const double kNanoToBase = 1e-9;
-const long long kOneMS = 1000000;
 const long long kCounterMax = numeric_limits<unsigned int>::max();
-const int kMaxTrace = 30;
+const int kMaxTrace = 3;
+const int kTopOfStackID = 2;
 }
 
 static long long last_read_time = 0LL;
 static long long last_energy_value[2] = {0LL, 0LL};
 
-struct stats_t{
-  long long package_energy;
-  long long pp0_energy;
-  long long time;
-  stats_t(long long pae, long long ppe, long long t) : package_energy{pae}, pp0_energy{ppe}, time{t} {}
-  stats_t() : package_energy{0}, pp0_energy{0}, time{0} {}
-};
+map<string, stats_t>* total_stats;
 
 int* get_eventset(){
   static int eventset = PAPI_NULL;
-  if(eventset == PAPI_NULL){
-    init_papi(&eventset);
-  }
   return &eventset;
 }
 
-void init_papi(int* eventset){
+static int inited = init_papi();
+
+int init_papi(){
+  assert(kSleepSecs > 0 || kSleepUsecs > 1000 && "ERROR: must sleep for more than 1ms");
+  int* eventset = get_eventset();
   print("init\n");
   int retval;
   if ( ( retval = PAPI_library_init( PAPI_VER_CURRENT ) ) != PAPI_VER_CURRENT ){
@@ -110,6 +104,8 @@ void init_papi(int* eventset){
     exit(-1);
   }
 
+  total_stats = new map<string, stats_t>;
+
   struct itimerval work_time;
   work_time.it_value.tv_sec = kSleepSecs;
   work_time.it_value.tv_usec = kSleepUsecs;
@@ -120,45 +116,61 @@ void init_papi(int* eventset){
   retval = PAPI_reset(*eventset);
   PAPI_read(*eventset, last_energy_value);
   last_read_time = PAPI_get_real_nsec();
+  return 1;
 }
 
-void read_rapl(){
+stats_t read_rapl(){
   long long curtime = PAPI_get_real_nsec();
-  if(curtime - last_read_time > kOneMS){
-    long long energy_val[2];
-    int retval=PAPI_read(*get_eventset(), energy_val);
-    if(retval != PAPI_OK){
-      PAPI_perror(NULL);
-      exit(-1);
-    }
-    long long total_energy[2];
-    for(int i = 0; i < 2; ++i){
-      if(energy_val[i] < last_energy_value[i]){
-        total_energy[i] = kCounterMax - last_energy_value[i] + energy_val[i];
-      } else {
-        total_energy[i] = energy_val[i] - last_energy_value[i];
-      }
-    }
-    print("read: %lld\t%lld\n", total_energy[0], total_energy[1]);
-    last_read_time = curtime;
-    last_energy_value[0] = energy_val[0];
-    last_energy_value[1] = energy_val[1];
-    //TODO: attribute to top of call stack
+  stats_t res;
+  long long energy_val[2];
+  int retval=PAPI_read(*get_eventset(), energy_val);
+  if(retval != PAPI_OK){
+    PAPI_perror(NULL);
+    exit(-1);
   }
+  long long total_energy[2];
+  for(int i = 0; i < 2; ++i){
+    if(energy_val[i] < last_energy_value[i]){
+      total_energy[i] = kCounterMax - last_energy_value[i] + energy_val[i];
+    } else {
+      total_energy[i] = energy_val[i] - last_energy_value[i];
+    }
+  }
+  print("read: %lld\t%lld\n", total_energy[0], total_energy[1]);
+  res.package_energy = total_energy[0];
+  res.pp0_energy = total_energy[1];
+  res.time = curtime - last_read_time;
+
+  last_read_time = curtime;
+  last_energy_value[0] = energy_val[0];
+  last_energy_value[1] = energy_val[1];
+  return res;
 }
 
-void EAUDIT_push() { int* tmp = get_eventset();};
+void EAUDIT_push() {};
 void EAUDIT_pop(const char* n) {};
 
 void EAUDIT_shutdown(){
   print("shutdown\n");
-/*
+  struct itimerval work_time;
+  work_time.it_value.tv_sec = 0;
+  work_time.it_value.tv_usec = 0;
+  work_time.it_interval.tv_sec = 0;
+  work_time.it_interval.tv_usec = 0;
+  setitimer(ITIMER_REAL, &work_time, nullptr);
+
   vector<pair<string, stats_t> > stats;
-  for(auto& func : total_stats()){
+  for(auto& func : (*total_stats)){
     auto name = demangle_func_name(func.first); // TODO: figure out demangling
                                                 // ie byfl or builtin
     stats.emplace_back(name, func.second);
+    print("%s\tpackage:%lld\tpp0:%lld\ttime:%lld\n", name.c_str(),
+        func.second.package_energy,
+        func.second.pp0_energy,
+        func.second.time);
   }
+
+  delete total_stats;
 
   stable_sort(stats.begin(), stats.end(),
       [](const pair<string, stats_t>& a,
@@ -185,7 +197,6 @@ void EAUDIT_shutdown(){
          << "\t" << "PP0 Power(w)" 
          << endl;
   for(auto& func : stats){
-    if(func.second.time == 0) continue;
     myfile << func.first
            << "\t" << func.second.time * kNanoToBase
            << "\t" << func.second.package_energy * kNanoToBase
@@ -198,21 +209,35 @@ void EAUDIT_shutdown(){
            << endl;
   }
   myfile.close();
-  */
 }
 
 void overflow(int signum, siginfo_t* info, void* context){
   if(signum == SIGALRM){
     print("overflow\n");
-    ucontext_t* uc = (ucontext_t*) context;
     void* trace[kMaxTrace];
     int trace_size = backtrace(trace, kMaxTrace);
-    //trace[1] = (void*) uc->uc_mcontext.gregs[REG_RIP];
-    char** names = backtrace_symbols(trace, trace_size);
-    cout << "last " << trace_size << " frames:" << endl;
-    for(int i = 0; i < trace_size; ++i){
-      cout << names[i] << endl;
+    if(trace_size != 3){
+      cerr << "Can't get top of call stack!" << endl;
+      exit(-1);
     }
+    char** names = backtrace_symbols(trace, trace_size);
+    char* name_start = nullptr;
+    string::size_type name_len = 0;
+    print("here\n");
+    print("func name: %s\n", names[kTopOfStackID]);
+    for(char* p = names[kTopOfStackID]; *p; ++p){
+      if(*p == '('){
+        name_start = p + 1;
+      }
+      if(*p == '+' && name_start){
+        name_len = p - name_start;
+        break;
+      }
+    }
+    string func_name{name_start, name_len};
+    (*total_stats)[func_name] += read_rapl();
+    //cout << "func_name: " << func_name << "\t" << total_stats()[func_name].package_energy << endl;
+    free(names);
   }
 }
 

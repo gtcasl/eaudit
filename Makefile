@@ -2,16 +2,14 @@ BF_CXX = bf-g++-4.7
 CXX = g++-4.7
 
 EAFLAGS=-std=gnu++11 -I/home/eric/byfl/lib/include
-CXXFLAGS=-O2
+CXXFLAGS=-g -Wl,--export-dynamic
 LDFLAGS=-L/usr/local/lib -l:libpapi.so.5
 
 ifeq ($(DEBUG),y)
 	EAFLAGS += -DDEBUG
-	CXXFLAGS = -g -O0 -Wl,--export-dynamic
-endif
-
-ifeq ($(RECORDALL),y)
-	EAFLAGS += -DEAUDIT_RECORD_ALL
+	CXXFLAGS += -O0
+else
+	CXXFLAGS += -O3
 endif
 
 TARGET=test
@@ -26,18 +24,13 @@ eaudit.o: eaudit.cpp eaudit.h
 test.o: test.cpp
 	$(BF_CXX) $(CXXFLAGS) -c -o $@ $<
 
-.PHONY: clean object recordall debug drecordall
+.PHONY: clean object debug 
 
 object: eaudit.o
 
 clean:
 	-rm *.o $(TARGET)
 
-recordall:
-	$(MAKE) RECORDALL=y
-
 debug:
 	$(MAKE) DEBUG=y
 
-drecordall:
-	$(MAKE) RECORDALL=y DEBUG=y
