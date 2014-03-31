@@ -26,41 +26,44 @@
 using namespace std;
 
 namespace{
-const unsigned kSleepSecs = 2;
+const unsigned kSleepSecs = 30;
 const unsigned kSleepUsecs = 0;
 const double kNanoToBase = 1e-9;
 const int kOverflowThreshold = 10000000;
 const long long kOneMS = 1000000;
 const long long kCounterMax = numeric_limits<unsigned int>::max();
+const char* kCounterNames[] = {
+  (char*) "rapl:::PACKAGE_ENERGY:PACKAGE0",
+  (char*) "rapl:::PP0_ENERGY:PACKAGE0",
+  (char*) "PAPI_TOT_INS",
+  (char*) "PAPI_TOT_CYC"
+};
+constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
 }
 
-static long long last_read_time = 0LL;
-static long long last_energy_value[2] = {0LL, 0LL};
-
-stack<long long, vector<long long> >& cur_package_energy(){
-  static stack<long long, vector<long long> > cur_package_energy_;
-  return cur_package_energy_;
-}
-
-stack<long long, vector<long long> >& cur_pp0_energy(){
-  static stack<long long, vector<long long> > cur_pp0_energy_;
-  return cur_pp0_energy_;
-}
-
-stack<long long, vector<long long> >& cur_time(){
-  static stack<long long, vector<long long> > cur_time_;
-  return cur_time_;
-}
-
-struct stats_t{
-  long long package_energy;
-  long long pp0_energy;
+struct stats_t {
   long long time;
-  stats_t(long long pae, long long ppe, long long t) : package_energy{pae}, pp0_energy{ppe}, time{t} {}
-  stats_t() : package_energy{0}, pp0_energy{0}, time{0} {}
+  long long counters[kNumCounters];
 };
 
+inline stats_t operator+(stats_t lhs, const stats_t& rhs) {
+  stats_t sum;
+  sum.time = lhs.time + rhs.time;
+  for (int i = 0; i < kNumCounters; ++i) {
+    sum.counters[i] = lhs.counters[i] + rhs.counters[i];
+  }
+  return sum;
+}
 
+stats_t& last_stats(){
+  static stats_t last_stats_;
+  return last_stats_;
+}
+
+stack<stats_t, vector<stats_t> >& cur_stats(){
+  static stack<stats_t, vector<stats_t> > cur_stats_;
+  return cur_stats_;
+}
 
 #ifdef EAUDIT_RECORD_ALL
 map<string, vector<stats_t> >& total_stats(){
@@ -74,15 +77,22 @@ map<string, stats_t>& total_stats(){
 }
 #endif
 
-int* get_eventset(){
-  static int eventset = PAPI_NULL;
-  if(eventset == PAPI_NULL){
-    init_papi(&eventset);
-  }
-  return &eventset;
+map<int, vector<int> >& component_events(){
+  static map<int, vector<int> > component_events_;
+  return component_events_;
 }
 
-void init_papi(int* eventset){
+vector<int>& get_eventsets(){
+  static vector<int> eventsets;
+  static int init = 1;
+  if(init == 1){
+    init_papi(eventsets);
+    init = 0;
+  }
+  return eventsets;
+}
+
+void init_papi(vector<int>& eventsets){
   print("init\n");
   int retval;
   if ( ( retval = PAPI_library_init( PAPI_VER_CURRENT ) ) != PAPI_VER_CURRENT ){
@@ -103,28 +113,40 @@ void init_papi(int* eventset){
     }
     exit(-1);
   }
-  retval = PAPI_create_eventset( eventset ); 
-  if ( retval != PAPI_OK  ){
-    PAPI_perror(NULL);
-    exit(-1);
+
+
+  for(auto& event_name : kCounterNames){
+    int event_code;
+    retval = PAPI_event_name_to_code((char*) event_name, &event_code);
+    if(retval != PAPI_OK){
+      PAPI_perror(NULL);
+      exit(-1);
+    }
+    int component = PAPI_get_event_component(event_code);
+    component_events()[component].push_back(event_code);
   }
 
-  retval = PAPI_add_named_event(*eventset, (char*) "rapl:::PACKAGE_ENERGY:PACKAGE0");
-  if(retval != PAPI_OK){
-    PAPI_perror(NULL);
-    exit(-1);
+  for(auto& component : component_events()){
+    int eventset = PAPI_NULL;
+    PAPI_create_eventset(&eventset);
+    if(retval != PAPI_OK){
+      PAPI_perror(NULL);
+      exit(-1);
+    }
+    PAPI_add_events(eventset, &component.second[0], component.second.size());
+    if(retval != PAPI_OK){
+      PAPI_perror(NULL);
+      exit(-1);
+    }
+    eventsets.push_back(eventset);
   }
 
-  retval = PAPI_add_named_event(*eventset, (char*) "rapl:::PP0_ENERGY:PACKAGE0");
-  if(retval != PAPI_OK){
-    PAPI_perror(NULL);
-    exit(-1);
-  }
-
-  retval=PAPI_start(*eventset);
-  if(retval != PAPI_OK){
-    PAPI_perror(NULL);
-    exit(-1);
+  for(auto& eventset : eventsets){
+    retval=PAPI_start(eventset);
+    if(retval != PAPI_OK){
+      PAPI_perror(NULL);
+      exit(-1);
+    }
   }
 
   // set up signal handler
@@ -135,9 +157,7 @@ void init_papi(int* eventset){
 
   // Set a dummy first element so that the first do_push has some place to put 
   // the previous function energy.
-  cur_package_energy().push(0LL);
-  cur_pp0_energy().push(0LL);
-  cur_time().push(0LL);
+  cur_stats().emplace();
 
   struct itimerval work_time;
   work_time.it_value.tv_sec = kSleepSecs;
@@ -145,36 +165,41 @@ void init_papi(int* eventset){
   work_time.it_interval.tv_sec = kSleepSecs;
   work_time.it_interval.tv_usec = kSleepUsecs;
   setitimer(ITIMER_REAL, &work_time, nullptr);
-
-  retval = PAPI_reset(*eventset);
-  PAPI_read(*eventset, last_energy_value);
-  last_read_time = PAPI_get_real_nsec();
 }
 
 bool read_rapl(){
+  auto eventsets = get_eventsets();
   long long curtime = PAPI_get_real_nsec();
-  if(curtime - last_read_time > kOneMS){
-    long long energy_val[2];
-    int retval=PAPI_read(*get_eventset(), energy_val);
-    if(retval != PAPI_OK){
-      PAPI_perror(NULL);
-      exit(-1);
-    }
-    long long total_energy[2];
-    for(int i = 0; i < 2; ++i){
-      if(energy_val[i] < last_energy_value[i]){
-        total_energy[i] = kCounterMax - last_energy_value[i] + energy_val[i];
-      } else {
-        total_energy[i] = energy_val[i] - last_energy_value[i];
+  print("timediff: %f\n", (curtime - last_stats().time) * (double) kNanoToBase);
+  if(curtime - last_stats().time > kOneMS){
+    long long cntr_vals[kNumCounters];
+    int cntr_offset = 0;
+    for(int i = 0; i < eventsets.size(); ++i){
+      int retval=PAPI_read(eventsets[i], cntr_vals + cntr_offset);
+      if(retval != PAPI_OK){
+        PAPI_perror(NULL);
+        exit(-1);
       }
+      cntr_offset += component_events()[eventsets[i]].size();
     }
-    print("read: %lld\t%lld\n", total_energy[0], total_energy[1]);
-    cur_package_energy().top() += total_energy[0];
-    cur_pp0_energy().top() += total_energy[1];
-    cur_time().top() += curtime - last_read_time;
-    last_read_time = curtime;
-    last_energy_value[0] = energy_val[0];
-    last_energy_value[1] = energy_val[1];
+
+    for(int i = 0; i < kNumCounters; ++i){
+      long long total;
+      if(cntr_vals[i] < last_stats().counters[i]){
+        total = kCounterMax - last_stats().counters[i] + cntr_vals[i];
+      } else {
+        total = cntr_vals[i] - last_stats().counters[i];
+      }
+      cur_stats().top().counters[i] += total;
+    }
+
+    cur_stats().top().time += curtime - last_stats().time;
+    stats_t last_stat;
+    last_stat.time = curtime;
+    for(int i = 0; i < kNumCounters; ++i){
+      last_stat.counters[i] = cntr_vals[i];
+    }
+    last_stats() = last_stat;
     return true;
   }
   return false;
@@ -183,9 +208,7 @@ bool read_rapl(){
 void EAUDIT_push(){
   print("push\n");
   read_rapl();
-  cur_package_energy().push(0LL);
-  cur_pp0_energy().push(0LL);
-  cur_time().push(0LL);
+  cur_stats().emplace();
 }
 
 void EAUDIT_pop(const char* func_name){
@@ -194,16 +217,14 @@ void EAUDIT_pop(const char* func_name){
   if(did_read){
     print("good read!\n");
 #ifdef EAUDIT_RECORD_ALL
-    total_stats()[func_name].emplace_back(cur_package_energy().top(), cur_pp0_energy().top(), cur_time().top());
+    total_stats()[func_name].emplace_back(cur_stats().top());
 #else
-    total_stats()[func_name].package_energy += cur_package_energy().top();
-    total_stats()[func_name].pp0_energy += cur_pp0_energy().top();
-    total_stats()[func_name].time += cur_time().top();
+    auto& top = cur_stats().top();
+    auto& total = total_stats()[func_name];
+    total = total + top;
 #endif
   } 
-  cur_package_energy().pop();
-  cur_pp0_energy().pop();
-  cur_time().pop();
+  cur_stats().pop();
 }
 
 void EAUDIT_shutdown(){
@@ -230,14 +251,8 @@ void EAUDIT_shutdown(){
 #ifdef EAUDIT_RECORD_ALL
       [](const pair<string, vector<stats_t> >& a,
          const pair<string, vector<stats_t> >& b){
-        stats_t sum_a = accumulate(a.second.begin(), a.second.end(), stats_t{0,0,0},
-          [](const stats_t& x, const stats_t& y){ return stats_t{x.package_energy + y.package_energy, 
-                                                                 x.pp0_energy + y.pp0_energy,
-                                                                 x.time + y.time}; });
-        stats_t sum_b = accumulate(b.second.begin(), b.second.end(), stats_t{0,0,0},
-          [](const stats_t& x, const stats_t& y){ return stats_t{x.package_energy + y.package_energy, 
-                                                                 x.pp0_energy + y.pp0_energy,
-                                                                 x.time + y.time}; });
+        stats_t sum_a = accumulate(a.second.begin(), a.second.end(), stats_t{});
+        stats_t sum_b = accumulate(b.second.begin(), b.second.end(), stats_t{});
         return sum_a.time > sum_b.time;
       }
 #else
@@ -246,94 +261,64 @@ void EAUDIT_shutdown(){
 #endif
       );
 
-  double total_time = 0, total_package_energy = 0, total_pp0_energy = 0;
-#ifdef EAUDIT_RECORD_ALL
-  for(const auto& func : stats){
-    for(const auto& stat : func.second){
-      total_time += stat.time;
-      total_package_energy += stat.package_energy;
-      total_pp0_energy += stat.pp0_energy;
-    }
-  }
-#else
-  for(const auto& func : stats){
-    total_time += func.second.time;
-    total_package_energy += func.second.package_energy;
-    total_pp0_energy += func.second.pp0_energy;
-  }
-#endif
-
   ofstream myfile;
   myfile.open("eaudit.tsv");
   myfile << "Func Name" 
-         << "\t" << "Time(s)"
-         << "\t" << "Package Energy(J)" 
-         << "\t" << "PP0 Energy(J)" 
-         << "\t" << "% Time"
-         << "\t" << "% Package Energy"
-         << "\t" << "% PP0 Energy"
-         << "\t" << "Package Power(w)" 
-         << "\t" << "PP0 Power(w)" 
+         << "\t" << "Time(s)";
 #ifdef EAUDIT_RECORD_ALL
-         << "\t" << "# Calls" 
-         << "\t" << "Time Avg" 
-         << "\t" << "Time Stddev"
-         << "\t" << "Package Energy Avg"
-         << "\t" << "PP0 Energy Avg"
-         << "\t" << "Package Energy Stddev" 
-         << "\t" << "PP0 Energy Stddev" 
+  myfile << "\tavg\tstddev";
 #endif
-         << endl;
+  for(int i = 0; i < kNumCounters; ++i){
+    myfile << "\t" << kCounterNames[i];
+#ifdef EAUDIT_RECORD_ALL
+    myfile << "\tavg\tstddev";
+#endif
+  }
+  myfile << endl;
+
   for(auto& func : stats){
 #ifdef EAUDIT_RECORD_ALL
-    stats_t sum = accumulate(func.second.begin(), func.second.end(), stats_t{0,0,0},
-        [](stats_t& x, stats_t& y){ 
-          return stats_t{x.package_energy + y.package_energy, 
-                         x.pp0_energy + y.pp0_energy,
-                         x.time + y.time}; 
-        });
-    double package_energy_avg = sum.package_energy / (double) func.second.size();
-    double pp0_energy_avg = sum.pp0_energy / (double) func.second.size();
-    double time_avg = sum.time / (double) func.second.size();
-    double package_energy_dev = 0, pp0_energy_dev = 0, time_dev = 0;
-    for(auto& val : func.second){
-      package_energy_dev += pow(val.package_energy - package_energy_avg, 2);
-      pp0_energy_dev += pow(val.pp0_energy - pp0_energy_avg, 2);
-      time_dev += pow(val.time - time_avg, 2);
+    stats_t func_sum = accumulate(func.second.begin(), func.second.end(), stats_t{});
+    if(func_sum.time == 0) continue;
+    stats_t func_dev;
+    auto count = func.second.size();
+    stats_t func_avg;
+    func_avg.time = func_sum.time / (double) count;
+    for(int i = 0; i < kNumCounters; ++i){
+      func_avg.counters[i] = func_sum.counters[i] / (double) count;
     }
-    package_energy_dev = sqrt(package_energy_dev / func.second.size());
-    pp0_energy_dev = sqrt(pp0_energy_dev / func.second.size());
-    time_dev = sqrt(time_dev / func.second.size());
-#else
-    stats_t sum{func.second.package_energy, func.second.pp0_energy, func.second.time};
-#endif
-    if(sum.time == 0) continue;
+    for(auto& val : func.second){
+      func_dev.time += pow(val.time - func_avg.time, 2);
+      for(int i = 0; i < kNumCounters; ++i){
+        func_dev.counters[i] += pow(val.counters[i] - func_avg.counters[i], 2);
+      }
+    }
+    func_dev.time = sqrt(func_dev.time / count);
+    for(int i = 0; i < kNumCounters; ++i){
+      func_dev.counters[i] = sqrt(func_dev.counters[i] / count);
+    }
     myfile << func.first
-           << "\t" << sum.time * kNanoToBase
-           << "\t" << sum.package_energy * kNanoToBase
-           << "\t" << sum.pp0_energy * kNanoToBase
-           << "\t" << sum.time / total_time * 100.0
-           << "\t" << sum.package_energy / total_package_energy * 100.0
-           << "\t" << sum.pp0_energy / total_pp0_energy * 100.0
-           << "\t" << sum.package_energy/(double)sum.time 
-           << "\t" << sum.pp0_energy/(double)sum.time 
-#ifdef EAUDIT_RECORD_ALL
-           << "\t" << func.second.size()
-           << "\t" << time_avg * kNanoToBase 
-           << "\t" << time_dev * kNanoToBase
-           << "\t" << package_energy_avg * kNanoToBase 
-           << "\t" << pp0_energy_avg * kNanoToBase 
-           << "\t" << package_energy_dev * kNanoToBase
-           << "\t" << pp0_energy_dev * kNanoToBase
+           << "\t" << func_sum.time * kNanoToBase
+           << "\t" << func_avg.time * kNanoToBase
+           << "\t" << func_dev.time * kNanoToBase;
+    for(int i = 0; i < kNumCounters; ++i){
+      myfile << "\t" << func_sum.counters[i]
+             << "\t" << func_avg.counters[i]
+             << "\t" << func_dev.counters[i];
+    }
+#else
+    if(func.second.time == 0) continue;
+    myfile << func.first
+           << "\t" << func.second.time * kNanoToBase;
+    for(int i = 0; i < kNumCounters; ++i){
+      myfile << "\t" << func.second.counters[i];
+    }
 #endif
-           << endl;
+    myfile << endl;
   }
   myfile.close();
 }
 
-/*void overflow(int eventset, void* address, long long overflow_vector, 
-              void* context){
-              */
 void overflow(int signum){
   if(signum == SIGALRM){
     print("overflow\n");
