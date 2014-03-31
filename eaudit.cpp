@@ -63,9 +63,15 @@ struct stats_t{
 
 
 #ifdef EAUDIT_RECORD_ALL
-map<string, vector<stats_t> >* total_stats;
+map<string, vector<stats_t> >& total_stats(){
+  static map<string, vector<stats_t> >* total_stats_ = new map<string, vector<stats_t> >();
+  return *total_stats_;
+}
 #else
-map<string, stats_t>* total_stats;
+map<string, stats_t>& total_stats(){
+  static map<string, stats_t>* total_stats_ = new map<string, stats_t>();
+  return *total_stats_;
+}
 #endif
 
 int* get_eventset(){
@@ -126,12 +132,6 @@ void init_papi(int* eventset){
     fprintf(stderr, "Unable to set up signal handler\n");
     exit(-1);
   }
-
-#ifdef EAUDIT_RECORD_ALL
-  total_stats = new map<string, vector<stats_t> >;
-#else
-  total_stats = new map<string, stats_t>;
-#endif
 
   // Set a dummy first element so that the first do_push has some place to put 
   // the previous function energy.
@@ -194,11 +194,11 @@ void EAUDIT_pop(const char* func_name){
   if(did_read){
     print("good read!\n");
 #ifdef EAUDIT_RECORD_ALL
-    (*total_stats)[func_name].emplace_back(cur_package_energy().top(), cur_pp0_energy().top(), cur_time().top());
+    total_stats()[func_name].emplace_back(cur_package_energy().top(), cur_pp0_energy().top(), cur_time().top());
 #else
-    (*total_stats)[func_name].package_energy += cur_package_energy().top();
-    (*total_stats)[func_name].pp0_energy += cur_pp0_energy().top();
-    (*total_stats)[func_name].time += cur_time().top();
+    total_stats()[func_name].package_energy += cur_package_energy().top();
+    total_stats()[func_name].pp0_energy += cur_pp0_energy().top();
+    total_stats()[func_name].time += cur_time().top();
 #endif
   } 
   cur_package_energy().pop();
@@ -220,12 +220,11 @@ void EAUDIT_shutdown(){
 #else
   vector<pair<string, stats_t> > stats;
 #endif
-  for(auto& func : *total_stats){
+  cout << "size: " << total_stats().size() << endl;
+  for(auto& func : total_stats()){
     auto name = demangle_func_name(func.first);
     stats.emplace_back(name, func.second);
   }
-
-  delete total_stats;
 
   stable_sort(stats.begin(), stats.end(),
 #ifdef EAUDIT_RECORD_ALL
