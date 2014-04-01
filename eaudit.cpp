@@ -92,6 +92,10 @@ vector<int>& get_eventsets(){
   return eventsets;
 }
 
+void handler(int eset, void* addr, long long oflowvec, void* context){
+  cout << "===========================handler!" << endl;
+}
+
 void init_papi(vector<int>& eventsets){
   print("init\n");
   int retval;
@@ -114,7 +118,36 @@ void init_papi(vector<int>& eventsets){
     exit(-1);
   }
 
+  int ecode, eset = PAPI_NULL;
+  PAPI_create_eventset(&eset);
+  PAPI_event_name_to_code((char*) "rapl:::PACKAGE_ENERGY:PACKAGE0", &ecode);
+  PAPI_add_event(eset, ecode);
+  retval = PAPI_overflow(eset, ecode, 1000000000, PAPI_OVERFLOW_FORCE_SW, handler);
+  switch(retval){
+    case PAPI_OK:
+      cout << "ok" << endl;
+      break;
+    case PAPI_EINVAL:
+      cout << "inval" << endl;
+      break;
+    case PAPI_ENOMEM:
+      cout << "nomem" << endl;
+      break;
+    case PAPI_ENOEVST:
+      cout << "noevst" << endl;
+      break;
+    case PAPI_EISRUN:
+      cout << "isrun" << endl;
+      break;
+    case PAPI_ECNFLCT:
+      cout << "cnflct" << endl;
+      break;
+    case PAPI_ENOEVNT:
+      cout << "noevnt" << endl;
+      break;
+  }
 
+/*
   for(auto& event_name : kCounterNames){
     int event_code;
     retval = PAPI_event_name_to_code((char*) event_name, &event_code);
@@ -165,10 +198,12 @@ void init_papi(vector<int>& eventsets){
   work_time.it_interval.tv_sec = kSleepSecs;
   work_time.it_interval.tv_usec = kSleepUsecs;
   setitimer(ITIMER_REAL, &work_time, nullptr);
+  */
 }
 
 bool read_rapl(){
   auto eventsets = get_eventsets();
+  return true;
   long long curtime = PAPI_get_real_nsec();
   print("timediff: %f\n", (curtime - last_stats().time) * (double) kNanoToBase);
   if(curtime - last_stats().time > kOneMS){

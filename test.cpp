@@ -1,8 +1,12 @@
 #include <iostream>
 #include <unistd.h>
 
-void bar(int x){
-  sleep(x);
+int bar(int x){
+  int a = 0;
+  for(long i = 0; i < 1000000000; ++i){
+    a += x * i;
+  }
+  return a;
 }
 
 int main(){
