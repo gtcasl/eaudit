@@ -36,20 +36,23 @@ string parse_backtrace_entry(string entry);
 
 namespace{
 const unsigned kSleepSecs = 0;
-const unsigned kSleepUsecs = 2000;
+const unsigned kSleepUsecs = 10000;
 const double kNanoToBase = 1e-9;
 const long long kBaseToNano = 1000000000;
 const long long kMicroToNano = 1000;
 const long long kCounterMax = numeric_limits<unsigned int>::max();
-const int kMaxTrace = 3;
-const int kTopOfStackID = 2;
-const char* kBacktraceNameFile = "eaudit.btrace";
 const int kBufSize = 1024;
+const int kReadPipe = 0;
+const int kWritePipe = 1;
+const char* kBufFileName = "eaudit.out";
 }
 
-static long long last_energy_value[2] = {0LL, 0LL};
+struct trace_entry{
+  void* return_addr;
+  stats_t stats;
+};
 
-map<void*, stats_t>* total_stats;
+static long long last_energy_value[2] = {0LL, 0LL};
 
 int* get_eventset(){
   static int eventset = PAPI_NULL;
@@ -57,8 +60,7 @@ int* get_eventset(){
 }
 
 static int inited = init_papi();
-static int myfd[2];
-static volatile int cnt = 0;
+static int myfd;
 
 int init_papi(){
   assert(kSleepSecs > 0 || kSleepUsecs > 1000 && "ERROR: must sleep for more than 1ms");
@@ -116,9 +118,7 @@ int init_papi(){
     exit(-1);
   }
 
-  total_stats = new map<void*, stats_t>;
-
-  if(pipe(myfd) == -1){
+  if((myfd = open(kBufFileName, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) == -1){
     cerr << "Unable to open file" << endl;
     exit(-1);
   }
@@ -179,12 +179,15 @@ void EAUDIT_shutdown(){
   work_time.it_interval.tv_usec = 0;
   setitimer(ITIMER_REAL, &work_time, nullptr);
 
+  ssize_t nread;
+  trace_entry entry;
   map<string, stats_t> stat_map;
-  for(auto& func : (*total_stats)){
-    auto entry = backtrace_symbols(&func.first, 1)[0];
-    auto mangled = parse_backtrace_entry(entry);
+  lseek(myfd, 0, SEEK_SET);
+  while((nread = read(myfd, (void*) &entry, sizeof(entry))) == sizeof(entry)){
+    auto symbol = backtrace_symbols(&entry.return_addr, 1)[0];
+    auto mangled = parse_backtrace_entry(symbol);
     auto name = demangle_func_name(mangled);
-    stat_map[name] += func.second;
+    stat_map[name] += entry.stats;
   }
 
   vector<pair<string, stats_t> > stats;
@@ -195,8 +198,6 @@ void EAUDIT_shutdown(){
         func.second.pp0_energy,
         func.second.time);
   }
-
-  delete total_stats;
 
   stable_sort(stats.begin(), stats.end(),
       [](const pair<string, stats_t>& a,
@@ -243,8 +244,14 @@ void overflow(int signum, siginfo_t* info, void* context){
 
     ucontext_t* uc = (ucontext_t*) context;
     void* caller = (void*) uc->uc_mcontext.gregs[REG_RIP];
-    auto res = read_rapl();
-    (*total_stats)[caller] += res;
+    trace_entry entry;
+    entry.return_addr = (void*) uc->uc_mcontext.gregs[REG_RIP];
+    entry.stats = read_rapl();
+    auto res = write(myfd, &entry, sizeof(entry));
+    if(res == -1){
+      cerr << "Unable to write to pipe." << endl;
+      exit(-1);
+    }
   }
 }
 
