@@ -1,0 +1,6 @@
+syntax: glob
+.*.swp
+*.o
+*.tsv
+test
+eaudit.out
