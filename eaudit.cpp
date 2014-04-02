@@ -33,6 +33,8 @@
 using namespace std;
 
 string parse_backtrace_entry(string entry);
+void overflow(int signum, siginfo_t* info, void* context);
+int init_papi();
 
 namespace{
 const unsigned kSleepSecs = 0;
@@ -57,7 +59,16 @@ constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
 struct stats_t {
   long long time;
   long long counters[kNumCounters];
+  stats_t& operator+=(const stats_t &rhs){
+    time += rhs.time;
+    for(int i = 0; i < kNumCounters; ++i){
+      counters[i] += rhs.counters[i];
+    }
+    return *this;
+  }
 };
+
+stats_t read_rapl();
 
 struct trace_entry{
   void* return_addr;
@@ -65,12 +76,7 @@ struct trace_entry{
 };
 
 inline stats_t operator+(stats_t lhs, const stats_t& rhs) {
-  stats_t sum;
-  sum.time = lhs.time + rhs.time;
-  for (int i = 0; i < kNumCounters; ++i) {
-    sum.counters[i] = lhs.counters[i] + rhs.counters[i];
-  }
-  return sum;
+  return lhs += rhs;
 }
 
 stats_t& last_stats(){
@@ -81,15 +87,11 @@ stats_t& last_stats(){
 map<int, vector<int> >& component_events(){
   static map<int, vector<int> > component_events_;
   return component_events_;
+}
 
-vector<int>& get_eventsets(){
-  static vector<int> eventsets;
-  static int init = 1;
-  if(init == 1){
-    init_papi(eventsets);
-    init = 0;
-  }
-  return eventsets;
+vector<int>& eventsets(){
+  static vector<int> eventsets_;
+  return eventsets_;
 }
 
 static int inited = init_papi();
@@ -97,7 +99,6 @@ static int myfd;
 
 int init_papi(){
   assert(kSleepSecs > 0 || kSleepUsecs > 1000 && "ERROR: must sleep for more than 1ms");
-  int* eventset = get_eventset();
   print("init\n");
   int retval;
   if ( ( retval = PAPI_library_init( PAPI_VER_CURRENT ) ) != PAPI_VER_CURRENT ){
@@ -143,10 +144,10 @@ int init_papi(){
       PAPI_perror(NULL);
       exit(-1);
     }
-    eventsets.push_back(eventset);
+    eventsets().push_back(eventset);
   }
 
-  for(auto& eventset : eventsets){
+  for(auto& eventset : eventsets()){
     retval=PAPI_start(eventset);
     if(retval != PAPI_OK){
       PAPI_perror(NULL);
@@ -178,18 +179,16 @@ int init_papi(){
 }
 
 stats_t read_rapl(){
-  auto eventsets = get_eventsets();
-  long long curtime = PAPI_get_real_nsec();
-  //print("timediff: %f\n", (curtime - last_stats().time) * (double) kNanoToBase);
+  auto esets = eventsets();
   long long cntr_vals[kNumCounters];
   int cntr_offset = 0;
-  for(int i = 0; i < eventsets.size(); ++i){
-    int retval=PAPI_read(eventsets[i], cntr_vals + cntr_offset);
+  for(int i = 0; i < esets.size(); ++i){
+    int retval=PAPI_read(esets[i], cntr_vals + cntr_offset);
     if(retval != PAPI_OK){
       PAPI_perror(NULL);
       exit(-1);
     }
-    cntr_offset += component_events()[eventsets[i]].size();
+    cntr_offset += component_events()[esets[i]].size();
   }
 
   stats_t cur_stats;
@@ -203,9 +202,8 @@ stats_t read_rapl(){
     cur_stats.counters[i] = total;
   }
 
-  cur_stats.time = curtime - last_stats().time;
+  cur_stats.time = kSleepSecs * kBaseToNano + kSleepUsecs * kMicroToNano;
   stats_t last_stat;
-  last_stat.time = curtime;
   for(int i = 0; i < kNumCounters; ++i){
     last_stat.counters[i] = cntr_vals[i];
   }
@@ -240,10 +238,6 @@ void EAUDIT_shutdown(){
   vector<pair<string, stats_t> > stats;
   for(auto& func : stat_map){
     stats.emplace_back(func.first, func.second);
-    print("%s\tpackage:%lld\tpp0:%lld\ttime:%lld\n", func.first.c_str(),
-        func.second.package_energy,
-        func.second.pp0_energy,
-        func.second.time);
   }
 
   stable_sort(stats.begin(), stats.end(),
@@ -266,6 +260,7 @@ void EAUDIT_shutdown(){
     for(int i = 0; i < kNumCounters; ++i){
       myfile << "\t" << func.second.counters[i];
     }
+    myfile << endl;
   }
   myfile.close();
 }
