@@ -1,7 +1,6 @@
-BF_CXX = bf-g++-4.7
-CXX = g++-4.7
+CXX = g++
 
-EAFLAGS=-std=gnu++11 -I/home/eric/byfl/lib/include
+EAFLAGS=-std=gnu++0x
 CXXFLAGS=-g -Wl,--export-dynamic
 LDFLAGS=-L/usr/local/lib -l:libpapi.so.5
 
@@ -15,14 +14,14 @@ endif
 TARGET=test
 
 all: eaudit.o test.o
-	$(BF_CXX) $(CXXFLAGS) -o $(TARGET) $^ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $^ $(LDFLAGS)
 	sudo setcap cap_sys_rawio=ep $(TARGET)
 
-eaudit.o: eaudit.cpp eaudit.h
+eaudit.o: eaudit.cpp
 	$(CXX) $(EAFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 test.o: test.cpp
-	$(BF_CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 .PHONY: clean object debug 
 
