@@ -179,7 +179,7 @@ int init_papi(){
 }
 
 stats_t read_rapl(){
-  auto esets = eventsets();
+  const auto& esets = eventsets();
   long long cntr_vals[kNumCounters];
   int cntr_offset = 0;
   for(int i = 0; i < esets.size(); ++i){
