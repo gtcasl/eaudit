@@ -3,3 +3,4 @@ syntax: glob
 *.o
 *.tsv
 test
+eaudit.out

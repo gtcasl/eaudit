@@ -1,5 +1,7 @@
 #include "eaudit.h"
 
+#include <sstream>
+#include <cassert>
 #include <iomanip>
 #include <algorithm>
 #include <map>
@@ -11,8 +13,13 @@
 #include <fstream>
 #include <sys/time.h>
 #include <signal.h>
+#include <execinfo.h>
 #include <errno.h>
 #include <cstdio>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <ucontext.h>
 
 #include "papi.h"
 #include <byfl-common.h>
@@ -25,13 +32,19 @@
 
 using namespace std;
 
+string parse_backtrace_entry(string entry);
+
 namespace{
-const unsigned kSleepSecs = 30;
-const unsigned kSleepUsecs = 0;
+const unsigned kSleepSecs = 0;
+const unsigned kSleepUsecs = 10000;
 const double kNanoToBase = 1e-9;
-const int kOverflowThreshold = 10000000;
-const long long kOneMS = 1000000;
+const long long kBaseToNano = 1000000000;
+const long long kMicroToNano = 1000;
 const long long kCounterMax = numeric_limits<unsigned int>::max();
+const int kBufSize = 1024;
+const int kReadPipe = 0;
+const int kWritePipe = 1;
+const char* kBufFileName = "eaudit.out";
 const char* kCounterNames[] = {
   (char*) "rapl:::PACKAGE_ENERGY:PACKAGE0",
   (char*) "rapl:::PP0_ENERGY:PACKAGE0",
@@ -44,6 +57,11 @@ constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
 struct stats_t {
   long long time;
   long long counters[kNumCounters];
+};
+
+struct trace_entry{
+  void* return_addr;
+  stats_t stats;
 };
 
 inline stats_t operator+(stats_t lhs, const stats_t& rhs) {
@@ -60,27 +78,9 @@ stats_t& last_stats(){
   return last_stats_;
 }
 
-stack<stats_t, vector<stats_t> >& cur_stats(){
-  static stack<stats_t, vector<stats_t> > cur_stats_;
-  return cur_stats_;
-}
-
-#ifdef EAUDIT_RECORD_ALL
-map<string, vector<stats_t> >& total_stats(){
-  static map<string, vector<stats_t> >* total_stats_ = new map<string, vector<stats_t> >();
-  return *total_stats_;
-}
-#else
-map<string, stats_t>& total_stats(){
-  static map<string, stats_t>* total_stats_ = new map<string, stats_t>();
-  return *total_stats_;
-}
-#endif
-
 map<int, vector<int> >& component_events(){
   static map<int, vector<int> > component_events_;
   return component_events_;
-}
 
 vector<int>& get_eventsets(){
   static vector<int> eventsets;
@@ -92,7 +92,12 @@ vector<int>& get_eventsets(){
   return eventsets;
 }
 
-void init_papi(vector<int>& eventsets){
+static int inited = init_papi();
+static int myfd;
+
+int init_papi(){
+  assert(kSleepSecs > 0 || kSleepUsecs > 1000 && "ERROR: must sleep for more than 1ms");
+  int* eventset = get_eventset();
   print("init\n");
   int retval;
   if ( ( retval = PAPI_library_init( PAPI_VER_CURRENT ) ) != PAPI_VER_CURRENT ){
@@ -114,7 +119,7 @@ void init_papi(vector<int>& eventsets){
     exit(-1);
   }
 
-
+  
   for(auto& event_name : kCounterNames){
     int event_code;
     retval = PAPI_event_name_to_code((char*) event_name, &event_code);
@@ -150,14 +155,18 @@ void init_papi(vector<int>& eventsets){
   }
 
   // set up signal handler
-  if(signal(SIGALRM, overflow) == SIG_ERR){
+  struct sigaction sa;
+  sa.sa_sigaction = overflow;
+  sa.sa_flags = SA_SIGINFO | SA_RESTART;
+  if(sigaction(SIGALRM, &sa, nullptr) != 0){
     fprintf(stderr, "Unable to set up signal handler\n");
     exit(-1);
   }
 
-  // Set a dummy first element so that the first do_push has some place to put 
-  // the previous function energy.
-  cur_stats().emplace();
+  if((myfd = open(kBufFileName, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) == -1){
+    cerr << "Unable to open file" << endl;
+    exit(-1);
+  }
 
   struct itimerval work_time;
   work_time.it_value.tv_sec = kSleepSecs;
@@ -165,67 +174,48 @@ void init_papi(vector<int>& eventsets){
   work_time.it_interval.tv_sec = kSleepSecs;
   work_time.it_interval.tv_usec = kSleepUsecs;
   setitimer(ITIMER_REAL, &work_time, nullptr);
+  return 1;
 }
 
-bool read_rapl(){
+stats_t read_rapl(){
   auto eventsets = get_eventsets();
   long long curtime = PAPI_get_real_nsec();
-  print("timediff: %f\n", (curtime - last_stats().time) * (double) kNanoToBase);
-  if(curtime - last_stats().time > kOneMS){
-    long long cntr_vals[kNumCounters];
-    int cntr_offset = 0;
-    for(int i = 0; i < eventsets.size(); ++i){
-      int retval=PAPI_read(eventsets[i], cntr_vals + cntr_offset);
-      if(retval != PAPI_OK){
-        PAPI_perror(NULL);
-        exit(-1);
-      }
-      cntr_offset += component_events()[eventsets[i]].size();
+  //print("timediff: %f\n", (curtime - last_stats().time) * (double) kNanoToBase);
+  long long cntr_vals[kNumCounters];
+  int cntr_offset = 0;
+  for(int i = 0; i < eventsets.size(); ++i){
+    int retval=PAPI_read(eventsets[i], cntr_vals + cntr_offset);
+    if(retval != PAPI_OK){
+      PAPI_perror(NULL);
+      exit(-1);
     }
-
-    for(int i = 0; i < kNumCounters; ++i){
-      long long total;
-      if(cntr_vals[i] < last_stats().counters[i]){
-        total = kCounterMax - last_stats().counters[i] + cntr_vals[i];
-      } else {
-        total = cntr_vals[i] - last_stats().counters[i];
-      }
-      cur_stats().top().counters[i] += total;
-    }
-
-    cur_stats().top().time += curtime - last_stats().time;
-    stats_t last_stat;
-    last_stat.time = curtime;
-    for(int i = 0; i < kNumCounters; ++i){
-      last_stat.counters[i] = cntr_vals[i];
-    }
-    last_stats() = last_stat;
-    return true;
+    cntr_offset += component_events()[eventsets[i]].size();
   }
-  return false;
+
+  stats_t cur_stats;
+  for(int i = 0; i < kNumCounters; ++i){
+    long long total;
+    if(cntr_vals[i] < last_stats().counters[i]){
+      total = kCounterMax - last_stats().counters[i] + cntr_vals[i];
+    } else {
+      total = cntr_vals[i] - last_stats().counters[i];
+    }
+    cur_stats.counters[i] = total;
+  }
+
+  cur_stats.time = curtime - last_stats().time;
+  stats_t last_stat;
+  last_stat.time = curtime;
+  for(int i = 0; i < kNumCounters; ++i){
+    last_stat.counters[i] = cntr_vals[i];
+  }
+  last_stats() = last_stat;
+  return cur_stats;
 }
 
-void EAUDIT_push(){
-  print("push\n");
-  read_rapl();
-  cur_stats().emplace();
-}
+void EAUDIT_push() {}
 
-void EAUDIT_pop(const char* func_name){
-  print("popping %s\n", func_name);
-  auto did_read = read_rapl();
-  if(did_read){
-    print("good read!\n");
-#ifdef EAUDIT_RECORD_ALL
-    total_stats()[func_name].emplace_back(cur_stats().top());
-#else
-    auto& top = cur_stats().top();
-    auto& total = total_stats()[func_name];
-    total = total + top;
-#endif
-  } 
-  cur_stats().pop();
-}
+void EAUDIT_pop(const char* n) {};
 
 void EAUDIT_shutdown(){
   print("shutdown\n");
@@ -236,93 +226,79 @@ void EAUDIT_shutdown(){
   work_time.it_interval.tv_usec = 0;
   setitimer(ITIMER_REAL, &work_time, nullptr);
 
-#ifdef EAUDIT_RECORD_ALL
-  vector<pair<string, vector<stats_t> > > stats;
-#else
+  ssize_t nread;
+  trace_entry entry;
+  map<string, stats_t> stat_map;
+  lseek(myfd, 0, SEEK_SET);
+  while((nread = read(myfd, (void*) &entry, sizeof(entry))) == sizeof(entry)){
+    auto symbol = backtrace_symbols(&entry.return_addr, 1)[0];
+    auto mangled = parse_backtrace_entry(symbol);
+    auto name = demangle_func_name(mangled);
+    stat_map[name] += entry.stats;
+  }
+
   vector<pair<string, stats_t> > stats;
-#endif
-  cout << "size: " << total_stats().size() << endl;
-  for(auto& func : total_stats()){
-    auto name = demangle_func_name(func.first);
-    stats.emplace_back(name, func.second);
+  for(auto& func : stat_map){
+    stats.emplace_back(func.first, func.second);
+    print("%s\tpackage:%lld\tpp0:%lld\ttime:%lld\n", func.first.c_str(),
+        func.second.package_energy,
+        func.second.pp0_energy,
+        func.second.time);
   }
 
   stable_sort(stats.begin(), stats.end(),
-#ifdef EAUDIT_RECORD_ALL
-      [](const pair<string, vector<stats_t> >& a,
-         const pair<string, vector<stats_t> >& b){
-        stats_t sum_a = accumulate(a.second.begin(), a.second.end(), stats_t{});
-        stats_t sum_b = accumulate(b.second.begin(), b.second.end(), stats_t{});
-        return sum_a.time > sum_b.time;
-      }
-#else
       [](const pair<string, stats_t>& a,
-         const pair<string, stats_t>& b){ return a.second.time > b.second.time; }
-#endif
+        const pair<string, stats_t>& b){ return a.second.time > b.second.time; }
       );
 
   ofstream myfile;
   myfile.open("eaudit.tsv");
   myfile << "Func Name" 
          << "\t" << "Time(s)";
-#ifdef EAUDIT_RECORD_ALL
-  myfile << "\tavg\tstddev";
-#endif
   for(int i = 0; i < kNumCounters; ++i){
     myfile << "\t" << kCounterNames[i];
-#ifdef EAUDIT_RECORD_ALL
-    myfile << "\tavg\tstddev";
-#endif
   }
   myfile << endl;
 
   for(auto& func : stats){
-#ifdef EAUDIT_RECORD_ALL
-    stats_t func_sum = accumulate(func.second.begin(), func.second.end(), stats_t{});
-    if(func_sum.time == 0) continue;
-    stats_t func_dev;
-    auto count = func.second.size();
-    stats_t func_avg;
-    func_avg.time = func_sum.time / (double) count;
-    for(int i = 0; i < kNumCounters; ++i){
-      func_avg.counters[i] = func_sum.counters[i] / (double) count;
-    }
-    for(auto& val : func.second){
-      func_dev.time += pow(val.time - func_avg.time, 2);
-      for(int i = 0; i < kNumCounters; ++i){
-        func_dev.counters[i] += pow(val.counters[i] - func_avg.counters[i], 2);
-      }
-    }
-    func_dev.time = sqrt(func_dev.time / count);
-    for(int i = 0; i < kNumCounters; ++i){
-      func_dev.counters[i] = sqrt(func_dev.counters[i] / count);
-    }
-    myfile << func.first
-           << "\t" << func_sum.time * kNanoToBase
-           << "\t" << func_avg.time * kNanoToBase
-           << "\t" << func_dev.time * kNanoToBase;
-    for(int i = 0; i < kNumCounters; ++i){
-      myfile << "\t" << func_sum.counters[i]
-             << "\t" << func_avg.counters[i]
-             << "\t" << func_dev.counters[i];
-    }
-#else
-    if(func.second.time == 0) continue;
     myfile << func.first
            << "\t" << func.second.time * kNanoToBase;
     for(int i = 0; i < kNumCounters; ++i){
       myfile << "\t" << func.second.counters[i];
     }
-#endif
-    myfile << endl;
   }
   myfile.close();
 }
 
-void overflow(int signum){
+void overflow(int signum, siginfo_t* info, void* context){
   if(signum == SIGALRM){
-    print("overflow\n");
-    read_rapl();
+    //print("overflow\n");
+
+    ucontext_t* uc = (ucontext_t*) context;
+    void* caller = (void*) uc->uc_mcontext.gregs[REG_RIP];
+    trace_entry entry;
+    entry.return_addr = (void*) uc->uc_mcontext.gregs[REG_RIP];
+    entry.stats = read_rapl();
+    auto res = write(myfd, &entry, sizeof(entry));
+    if(res == -1){
+      cerr << "Unable to write to pipe." << endl;
+      exit(-1);
+    }
   }
+}
+
+string parse_backtrace_entry(string entry){
+  char* name_start = nullptr;
+  string::size_type name_len = 0;
+  for(char* p = (char*) entry.c_str(); *p; ++p){
+    if(*p == '('){
+      name_start = p + 1;
+    }
+    if(*p == '+' && name_start){
+      name_len = p - name_start;
+      break;
+    }
+  }
+  return string{name_start, name_len};
 }
 
