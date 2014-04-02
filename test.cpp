@@ -3,31 +3,12 @@
 #include <ctime>
 #include <cstdlib>
 
-void foo(int n){
-  int* x = (int*) malloc(n * sizeof(int));
-  int* y = (int*) malloc(n * sizeof(int));
-  int* z = (int*) malloc(n * sizeof(int));
-
-  srand(time(NULL));
-
-  for(int i = 0; i < n; ++i){
-    x[i] = rand();
-    y[i] = rand();
+int bar(int n){
+  long a = 0;
+  for(int i = 0; i < 1000000000; ++i){
+    a += n * i;
   }
-
-  for(int j = 0; j < 10; ++j){
-    for(int i = 0; i < n; ++i){
-      z[i] = x[i] * y[i];
-    }
-  }
-
-  free(z);
-  free(y);
-  free(x);
-}
-
-void bar(){
-  sleep(2);
+  return a;
 }
 
 int main(){
@@ -36,8 +17,9 @@ int main(){
   int x = 0;
   int y = 1;
   int z = y + x;
-  //foo(1000000);
-  bar();
+  bar(1);
+  //bar(2);
+  //bar(3);
 
   return 0;
 }
