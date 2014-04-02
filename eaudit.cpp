@@ -49,7 +49,7 @@ const int kBufSize = 1024;
 
 static long long last_energy_value[2] = {0LL, 0LL};
 
-map<string, stats_t>* total_stats;
+map<void*, stats_t>* total_stats;
 
 int* get_eventset(){
   static int eventset = PAPI_NULL;
@@ -116,7 +116,7 @@ int init_papi(){
     exit(-1);
   }
 
-  total_stats = new map<string, stats_t>;
+  total_stats = new map<void*, stats_t>;
 
   if(pipe(myfd) == -1){
     cerr << "Unable to open file" << endl;
@@ -131,11 +131,16 @@ int init_papi(){
   setitimer(ITIMER_REAL, &work_time, nullptr);
 
   retval = PAPI_reset(*eventset);
-  PAPI_read(*eventset, last_energy_value);
+  retval=PAPI_read(*eventset, last_energy_value);
+  if(retval != PAPI_OK){
+    PAPI_perror(NULL);
+    exit(-1);
+  }
   return 1;
 }
 
-stats_t read_rapl(){
+stats_t read_rapl()
+{
   stats_t res;
   long long energy_val[2];
   int retval=PAPI_read(*get_eventset(), energy_val);
@@ -161,32 +166,7 @@ stats_t read_rapl(){
   return res;
 }
 
-void EAUDIT_push() {
-  if(cnt == 0){ return; }
-  print("push: %d\n", cnt);
-
-  int curcount = cnt;
-  cnt = 0;
-  char buf[kBufSize];
-  string lines;
-  int newlines_left = 2;
-  ssize_t nread;
-  while(nread = read(myfd[0], buf, kBufSize)){
-    lines += string{buf, nread};
-  }
-  istringstream iss(lines);
-  for(int i = 0; i < curcount; ++i){
-    string entry;
-    long long counters[3];
-    iss >> entry >> counters[0] >> counters[1] >> counters[2];
-    //print("%lld\t%lld\t%lld\n", counters[0], counters[1], counters[2]);
-    auto mangled = parse_backtrace_entry(entry);
-    auto name = demangle_func_name(mangled);
-    stats_t stats{counters[0], counters[1], counters[2]};
-    (*total_stats)[name] += stats;
-  }
-  cnt = 0;
-}
+void EAUDIT_push() {}
 
 void EAUDIT_pop(const char* n) {};
 
@@ -198,10 +178,17 @@ void EAUDIT_shutdown(){
   work_time.it_interval.tv_sec = 0;
   work_time.it_interval.tv_usec = 0;
   setitimer(ITIMER_REAL, &work_time, nullptr);
-  EAUDIT_push();
+
+  map<string, stats_t> stat_map;
+  for(auto& func : (*total_stats)){
+    auto entry = backtrace_symbols(&func.first, 1)[0];
+    auto mangled = parse_backtrace_entry(entry);
+    auto name = demangle_func_name(mangled);
+    stat_map[name] += func.second;
+  }
 
   vector<pair<string, stats_t> > stats;
-  for(auto& func : (*total_stats)){
+  for(auto& func : stat_map){
     stats.emplace_back(func.first, func.second);
     print("%s\tpackage:%lld\tpp0:%lld\ttime:%lld\n", func.first.c_str(),
         func.second.package_energy,
@@ -252,17 +239,12 @@ void EAUDIT_shutdown(){
 
 void overflow(int signum, siginfo_t* info, void* context){
   if(signum == SIGALRM){
-    print("overflow\n");
+    //print("overflow\n");
 
     ucontext_t* uc = (ucontext_t*) context;
     void* caller = (void*) uc->uc_mcontext.gregs[REG_RIP];
-    print("here1\n");
-    backtrace_symbols_fd(&caller, 1, myfd[1]);
-    print("here2\n");
     auto res = read_rapl();
-    print("%lld\t%lld\t%lld\n", res.time, res.package_energy, res.pp0_energy);
-    dprintf(myfd[1], "%lld\t%lld\t%lld\n", res.package_energy, res.pp0_energy, res.time);
-    ++cnt;
+    (*total_stats)[caller] += res;
   }
 }
 
