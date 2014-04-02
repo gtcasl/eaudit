@@ -79,11 +79,6 @@ inline stats_t operator+(stats_t lhs, const stats_t& rhs) {
   return lhs += rhs;
 }
 
-stats_t& last_stats(){
-  static stats_t last_stats_;
-  return last_stats_;
-}
-
 map<int, vector<int> >& component_events(){
   static map<int, vector<int> > component_events_;
   return component_events_;
@@ -180,35 +175,23 @@ int init_papi(){
 
 stats_t read_rapl(){
   const auto& esets = eventsets();
-  long long cntr_vals[kNumCounters];
+  stats_t res;
   int cntr_offset = 0;
   for(int i = 0; i < esets.size(); ++i){
-    int retval=PAPI_read(esets[i], cntr_vals + cntr_offset);
+    int retval=PAPI_stop(esets[i], res.counters + cntr_offset);
+    if(retval != PAPI_OK){
+      PAPI_perror(NULL);
+      exit(-1);
+    }
+    retval = PAPI_start(esets[i]);
     if(retval != PAPI_OK){
       PAPI_perror(NULL);
       exit(-1);
     }
     cntr_offset += component_events()[esets[i]].size();
   }
-
-  stats_t cur_stats;
-  for(int i = 0; i < kNumCounters; ++i){
-    long long total;
-    if(cntr_vals[i] < last_stats().counters[i]){
-      total = kCounterMax - last_stats().counters[i] + cntr_vals[i];
-    } else {
-      total = cntr_vals[i] - last_stats().counters[i];
-    }
-    cur_stats.counters[i] = total;
-  }
-
-  cur_stats.time = kSleepSecs * kBaseToNano + kSleepUsecs * kMicroToNano;
-  stats_t last_stat;
-  for(int i = 0; i < kNumCounters; ++i){
-    last_stat.counters[i] = cntr_vals[i];
-  }
-  last_stats() = last_stat;
-  return cur_stats;
+  res.time = kSleepSecs * kBaseToNano + kSleepUsecs * kMicroToNano;
+  return res;
 }
 
 void EAUDIT_push() {}
