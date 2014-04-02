@@ -1,5 +1,6 @@
 #include "eaudit.h"
 
+#include <sstream>
 #include <cassert>
 #include <iomanip>
 #include <algorithm>
@@ -15,6 +16,10 @@
 #include <execinfo.h>
 #include <errno.h>
 #include <cstdio>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <ucontext.h>
 
 #include "papi.h"
 #include <byfl-common.h>
@@ -27,16 +32,21 @@
 
 using namespace std;
 
+string parse_backtrace_entry(string entry);
+
 namespace{
-const unsigned kSleepSecs = 1;
-const unsigned kSleepUsecs = 0;
+const unsigned kSleepSecs = 0;
+const unsigned kSleepUsecs = 2000;
 const double kNanoToBase = 1e-9;
+const long long kBaseToNano = 1000000000;
+const long long kMicroToNano = 1000;
 const long long kCounterMax = numeric_limits<unsigned int>::max();
 const int kMaxTrace = 3;
 const int kTopOfStackID = 2;
+const char* kBacktraceNameFile = "eaudit.btrace";
+const int kBufSize = 1024;
 }
 
-static long long last_read_time = 0LL;
 static long long last_energy_value[2] = {0LL, 0LL};
 
 map<string, stats_t>* total_stats;
@@ -47,6 +57,8 @@ int* get_eventset(){
 }
 
 static int inited = init_papi();
+static int myfd[2];
+static volatile int cnt = 0;
 
 int init_papi(){
   assert(kSleepSecs > 0 || kSleepUsecs > 1000 && "ERROR: must sleep for more than 1ms");
@@ -106,6 +118,11 @@ int init_papi(){
 
   total_stats = new map<string, stats_t>;
 
+  if(pipe(myfd) == -1){
+    cerr << "Unable to open file" << endl;
+    exit(-1);
+  }
+
   struct itimerval work_time;
   work_time.it_value.tv_sec = kSleepSecs;
   work_time.it_value.tv_usec = kSleepUsecs;
@@ -115,12 +132,10 @@ int init_papi(){
 
   retval = PAPI_reset(*eventset);
   PAPI_read(*eventset, last_energy_value);
-  last_read_time = PAPI_get_real_nsec();
   return 1;
 }
 
 stats_t read_rapl(){
-  long long curtime = PAPI_get_real_nsec();
   stats_t res;
   long long energy_val[2];
   int retval=PAPI_read(*get_eventset(), energy_val);
@@ -136,18 +151,43 @@ stats_t read_rapl(){
       total_energy[i] = energy_val[i] - last_energy_value[i];
     }
   }
-  print("read: %lld\t%lld\n", total_energy[0], total_energy[1]);
+  //print("read: %lld\t%lld\n", total_energy[0], total_energy[1]);
   res.package_energy = total_energy[0];
   res.pp0_energy = total_energy[1];
-  res.time = curtime - last_read_time;
+  res.time = kSleepSecs * kBaseToNano + kSleepUsecs * kMicroToNano;
 
-  last_read_time = curtime;
   last_energy_value[0] = energy_val[0];
   last_energy_value[1] = energy_val[1];
   return res;
 }
 
-void EAUDIT_push() {};
+void EAUDIT_push() {
+  if(cnt == 0){ return; }
+  print("push: %d\n", cnt);
+
+  int curcount = cnt;
+  cnt = 0;
+  char buf[kBufSize];
+  string lines;
+  int newlines_left = 2;
+  ssize_t nread;
+  while(nread = read(myfd[0], buf, kBufSize)){
+    lines += string{buf, nread};
+  }
+  istringstream iss(lines);
+  for(int i = 0; i < curcount; ++i){
+    string entry;
+    long long counters[3];
+    iss >> entry >> counters[0] >> counters[1] >> counters[2];
+    //print("%lld\t%lld\t%lld\n", counters[0], counters[1], counters[2]);
+    auto mangled = parse_backtrace_entry(entry);
+    auto name = demangle_func_name(mangled);
+    stats_t stats{counters[0], counters[1], counters[2]};
+    (*total_stats)[name] += stats;
+  }
+  cnt = 0;
+}
+
 void EAUDIT_pop(const char* n) {};
 
 void EAUDIT_shutdown(){
@@ -158,13 +198,12 @@ void EAUDIT_shutdown(){
   work_time.it_interval.tv_sec = 0;
   work_time.it_interval.tv_usec = 0;
   setitimer(ITIMER_REAL, &work_time, nullptr);
+  EAUDIT_push();
 
   vector<pair<string, stats_t> > stats;
   for(auto& func : (*total_stats)){
-    auto name = demangle_func_name(func.first); // TODO: figure out demangling
-                                                // ie byfl or builtin
-    stats.emplace_back(name, func.second);
-    print("%s\tpackage:%lld\tpp0:%lld\ttime:%lld\n", name.c_str(),
+    stats.emplace_back(func.first, func.second);
+    print("%s\tpackage:%lld\tpp0:%lld\ttime:%lld\n", func.first.c_str(),
         func.second.package_energy,
         func.second.pp0_energy,
         func.second.time);
@@ -214,30 +253,31 @@ void EAUDIT_shutdown(){
 void overflow(int signum, siginfo_t* info, void* context){
   if(signum == SIGALRM){
     print("overflow\n");
-    void* trace[kMaxTrace];
-    int trace_size = backtrace(trace, kMaxTrace);
-    if(trace_size != 3){
-      cerr << "Can't get top of call stack!" << endl;
-      exit(-1);
-    }
-    char** names = backtrace_symbols(trace, trace_size);
-    char* name_start = nullptr;
-    string::size_type name_len = 0;
-    print("here\n");
-    print("func name: %s\n", names[kTopOfStackID]);
-    for(char* p = names[kTopOfStackID]; *p; ++p){
-      if(*p == '('){
-        name_start = p + 1;
-      }
-      if(*p == '+' && name_start){
-        name_len = p - name_start;
-        break;
-      }
-    }
-    string func_name{name_start, name_len};
-    (*total_stats)[func_name] += read_rapl();
-    //cout << "func_name: " << func_name << "\t" << total_stats()[func_name].package_energy << endl;
-    free(names);
+
+    ucontext_t* uc = (ucontext_t*) context;
+    void* caller = (void*) uc->uc_mcontext.gregs[REG_RIP];
+    print("here1\n");
+    backtrace_symbols_fd(&caller, 1, myfd[1]);
+    print("here2\n");
+    auto res = read_rapl();
+    print("%lld\t%lld\t%lld\n", res.time, res.package_energy, res.pp0_energy);
+    dprintf(myfd[1], "%lld\t%lld\t%lld\n", res.package_energy, res.pp0_energy, res.time);
+    ++cnt;
   }
+}
+
+string parse_backtrace_entry(string entry){
+  char* name_start = nullptr;
+  string::size_type name_len = 0;
+  for(char* p = (char*) entry.c_str(); *p; ++p){
+    if(*p == '('){
+      name_start = p + 1;
+    }
+    if(*p == '+' && name_start){
+      name_len = p - name_start;
+      break;
+    }
+  }
+  return string{name_start, name_len};
 }
 
