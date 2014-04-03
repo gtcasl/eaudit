@@ -126,7 +126,7 @@ struct EnergyAuditor {
         exit(-1);
       }
       for(const auto& event : component.second){
-        char* name;
+        char name[PAPI_MAX_STR_LEN];
         PAPI_event_code_to_name(event, name);
         counter_names.emplace_back(name);
       }
