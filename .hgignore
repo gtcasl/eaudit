@@ -4,4 +4,3 @@ syntax: glob
 *.tsv
 test
 eaudit.out
-libeaudit.so
