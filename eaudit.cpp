@@ -45,7 +45,7 @@ const char* kCounterNames[] = {
   (char*) "rapl:::PACKAGE_ENERGY:PACKAGE0",
   (char*) "rapl:::PP0_ENERGY:PACKAGE0",
   (char*) "PAPI_TOT_INS",
-  (char*) "PAPI_TOT_CYC",
+  //(char*) "PAPI_TOT_CYC",
 };
 constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
 }

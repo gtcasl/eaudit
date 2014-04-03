@@ -1,35 +1,29 @@
 CXX = g++
 
-EAFLAGS=-std=gnu++0x
-CXXFLAGS=-g -Wl,--export-dynamic
+CXXFLAGS=-g -std=gnu++0x -Wl,--export-dynamic
 LDFLAGS=-L/usr/local/lib -l:libpapi.so.5
 
 ifeq ($(DEBUG),y)
-	EAFLAGS += -DDEBUG
 	CXXFLAGS += -O0
 else
 	CXXFLAGS += -O3
 endif
 
-TARGET=test
+libeaudit.so: eaudit.o
+	$(CXX) $(CXXFLAGS) -shared -o $@ $^ $(LDFLAGS)
 
-all: eaudit.o test.o
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $^ $(LDFLAGS)
-	sudo setcap cap_sys_rawio=ep $(TARGET)
+test: test.cpp libeaudit.so
+	$(CXX) $(CXXFLAGS) -o $@ test.cpp -L. -leaudit
+	sudo setcap cap_sys_rawio=ep $@
 
 eaudit.o: eaudit.cpp
-	$(CXX) $(EAFLAGS) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) -fPIC -c -o $@ $<
 
-test.o: test.cpp
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
-
-.PHONY: clean object debug 
-
-object: eaudit.o
+.PHONY: clean debug 
 
 clean:
-	-rm *.o $(TARGET)
+	-rm *.o test libeaudit.so
 
 debug:
-	$(MAKE) DEBUG=y
+	$(MAKE) test DEBUG=y
 
