@@ -45,7 +45,7 @@ const char* kCounterNames[] = {
   (char*) "rapl:::PACKAGE_ENERGY:PACKAGE0",
   (char*) "rapl:::PP0_ENERGY:PACKAGE0",
   (char*) "PAPI_TOT_INS",
-  (char*) "PAPI_TOT_CYC"
+  (char*) "PAPI_TOT_CYC",
 };
 constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
 }
@@ -81,6 +81,7 @@ struct EnergyAuditor {
   static map<int, vector<int> > component_events;
   static vector<int> eventsets;
   static int myfd;
+  static vector<string> counter_names;
 
   EnergyAuditor() {
     assert(kSleepSecs > 0 ||
@@ -123,6 +124,11 @@ struct EnergyAuditor {
       if (retval != PAPI_OK) {
         PAPI_perror(NULL);
         exit(-1);
+      }
+      for(const auto& event : component.second){
+        char* name;
+        PAPI_event_code_to_name(event, name);
+        counter_names.emplace_back(name);
       }
       PAPI_add_events(eventset, &component.second[0], component.second.size());
       if (retval != PAPI_OK) {
@@ -199,8 +205,8 @@ struct EnergyAuditor {
     myfile << "Func Name"
            << "\t"
            << "Time(s)";
-    for (int i = 0; i < kNumCounters; ++i) {
-      myfile << "\t" << kCounterNames[i];
+    for(const auto& name : counter_names){
+      myfile << "\t" << name;
     }
     myfile << endl;
 
@@ -283,5 +289,6 @@ string demangle_func_name(string mangled_name) {
 map<int, vector<int> > EnergyAuditor::component_events;
 vector<int> EnergyAuditor::eventsets;
 int EnergyAuditor::myfd;
+vector<string> EnergyAuditor::counter_names;
 static EnergyAuditor auditor;
 
