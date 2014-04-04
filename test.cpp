@@ -14,9 +14,6 @@ int bar(int n){
 int main(){
 
   std::cout << "Hello world" << std::endl;
-  int x = 0;
-  int y = 1;
-  int z = y + x;
   bar(1);
   //bar(2);
   //bar(3);
