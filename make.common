@@ -1,0 +1,2 @@
+EAUDIT_OBJ=-g /home/eric/eaudit/eaudit.o
+EAUDIT_LIBS=-g -lpapi -Wl,--export-dynamic
