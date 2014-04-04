@@ -32,7 +32,7 @@ using namespace std;
 
 namespace{
 const unsigned kSleepSecs = 0;
-const unsigned kSleepUsecs = 10000;
+const unsigned kSleepUsecs = 500;
 const double kNanoToBase = 1e-9;
 const long long kBaseToNano = 1000000000;
 const long long kMicroToNano = 1000;
@@ -84,8 +84,8 @@ struct EnergyAuditor {
   static vector<string> counter_names;
 
   EnergyAuditor() {
-    assert(kSleepSecs > 0 ||
-           kSleepUsecs > 1000 && "ERROR: must sleep for more than 1ms");
+    assert(kSleepSecs == 0 &&
+           kSleepUsecs <= 500 && "ERROR: must update for less than .5ms (ie half rapl update rate");
     print("init\n");
     int retval;
     if ((retval = PAPI_library_init(PAPI_VER_CURRENT)) != PAPI_VER_CURRENT) {
@@ -225,7 +225,7 @@ stats_t read_rapl(){
   const auto& esets = EnergyAuditor::eventsets;
   stats_t res;
   int cntr_offset = 0;
-  for(int i = 0; i < esets.size(); ++i){
+  for(unsigned i = 0; i < esets.size(); ++i){
     int retval=PAPI_stop(esets[i], res.counters + cntr_offset);
     if(retval != PAPI_OK){
       PAPI_perror(NULL);
@@ -247,7 +247,6 @@ void overflow(int signum, siginfo_t* info, void* context){
     //print("overflow\n");
 
     ucontext_t* uc = (ucontext_t*) context;
-    void* caller = (void*) uc->uc_mcontext.gregs[REG_RIP];
     trace_entry entry;
     entry.return_addr = (void*) uc->uc_mcontext.gregs[REG_RIP];
     entry.stats = read_rapl();
