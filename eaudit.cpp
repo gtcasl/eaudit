@@ -78,8 +78,12 @@ stats_t read_rapl();
 string demangle_func_name(string mangled_name);
 
 struct EnergyAuditor {
-  static map<int, vector<int> > component_events;
-  static vector<int> eventsets;
+  struct event_info_t{
+    int component;
+    int eventset;
+    vector<int> eventcodes;
+  };
+  static vector<event_info_t> eventsets;
   static int myfd;
   static vector<string> counter_names;
 
@@ -115,30 +119,37 @@ struct EnergyAuditor {
         exit(-1);
       }
       int component = PAPI_get_event_component(event_code);
-      component_events[component].push_back(event_code);
+      auto elem = find_if(begin(eventsets), end(eventsets),
+                          [&](const event_info_t& c){
+                            return c.component == component; });
+      if(elem == end(eventsets)){
+        event_info_t new_info;
+        new_info.component = component;
+        new_info.eventcodes.push_back(event_code);
+        eventsets.push_back(new_info);
+      } else {
+        elem->eventcodes.push_back(event_code);
+      }
     }
 
-    for (auto& component : component_events) {
+    for (auto& event : eventsets) {
       int eventset = PAPI_NULL;
       PAPI_create_eventset(&eventset);
       if (retval != PAPI_OK) {
         PAPI_perror(NULL);
         exit(-1);
       }
-      for(const auto& event : component.second){
+      for(const auto& eventcode : event.eventcodes){
         char name[PAPI_MAX_STR_LEN];
-        PAPI_event_code_to_name(event, name);
+        PAPI_event_code_to_name(eventcode, name);
         counter_names.emplace_back(name);
       }
-      PAPI_add_events(eventset, &component.second[0], component.second.size());
+      PAPI_add_events(eventset, &event.eventcodes[0], event.eventcodes.size());
       if (retval != PAPI_OK) {
         PAPI_perror(NULL);
         exit(-1);
       }
-      eventsets.push_back(eventset);
-    }
-
-    for (auto& eventset : eventsets) {
+      event.eventset = eventset;
       retval = PAPI_start(eventset);
       if (retval != PAPI_OK) {
         PAPI_perror(NULL);
@@ -222,21 +233,20 @@ struct EnergyAuditor {
 };
 
 stats_t read_rapl(){
-  const auto& esets = EnergyAuditor::eventsets;
   stats_t res;
   int cntr_offset = 0;
-  for(unsigned i = 0; i < esets.size(); ++i){
-    int retval=PAPI_stop(esets[i], res.counters + cntr_offset);
+  for(const auto& eventset : EnergyAuditor::eventsets){
+    int retval=PAPI_stop(eventset.eventset, res.counters + cntr_offset);
     if(retval != PAPI_OK){
       PAPI_perror(NULL);
       exit(-1);
     }
-    retval = PAPI_start(esets[i]);
+    retval = PAPI_start(eventset.eventset);
     if(retval != PAPI_OK){
       PAPI_perror(NULL);
       exit(-1);
     }
-    cntr_offset += EnergyAuditor::component_events[esets[i]].size();
+    cntr_offset += eventset.eventcodes.size();
   }
   res.time = kSleepSecs * kBaseToNano + kSleepUsecs * kMicroToNano;
   return res;
@@ -285,8 +295,7 @@ string demangle_func_name(string mangled_name) {
     return string(mangled_name);
 }
 
-map<int, vector<int> > EnergyAuditor::component_events;
-vector<int> EnergyAuditor::eventsets;
+vector<EnergyAuditor::event_info_t> EnergyAuditor::eventsets;
 int EnergyAuditor::myfd;
 vector<string> EnergyAuditor::counter_names;
 static EnergyAuditor auditor;
