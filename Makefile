@@ -11,24 +11,25 @@ else
 	CXXFLAGS += -O3
 endif
 
-TARGET=test
+all: eaudit test
 
-all: eaudit.o test.o
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $^ $(LDFLAGS)
-	sudo setcap cap_sys_rawio=ep $(TARGET)
+eaudit: eaudit.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+	sudo setcap cap_sys_rawio=ep $@
 
 eaudit.o: eaudit.cpp
 	$(CXX) $(EAFLAGS) $(CXXFLAGS) -c -o $@ $<
 
+test: test.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
 test.o: test.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-.PHONY: clean object debug 
-
-object: eaudit.o
+.PHONY: clean debug 
 
 clean:
-	-rm *.o $(TARGET)
+	-rm *.o eaudit test
 
 debug:
 	$(MAKE) DEBUG=y

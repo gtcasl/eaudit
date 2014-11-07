@@ -20,6 +20,10 @@
 #include <unistd.h>
 #include <ucontext.h>
 
+#include <sys/user.h>
+#include <sys/ptrace.h>
+#include <sys/wait.h>
+
 #include "papi.h"
 
 #ifdef DEBUG
@@ -37,18 +41,16 @@ const double kNanoToBase = 1e-9;
 const long long kBaseToNano = 1000000000;
 const long long kMicroToNano = 1000;
 const long long kCounterMax = numeric_limits<unsigned int>::max();
-const int kBufSize = 1024;
-const int kReadPipe = 0;
-const int kWritePipe = 1;
-const char* kBufFileName = "eaudit.out";
+const char* kOutFileName = "eaudit.tsv";
 const char* kCounterNames[] = {
-  (char*) "rapl:::PACKAGE_ENERGY:PACKAGE0",
-  (char*) "rapl:::PP0_ENERGY:PACKAGE0",
+  //(char*) "rapl:::PACKAGE_ENERGY:PACKAGE0",
+  //(char*) "rapl:::PP0_ENERGY:PACKAGE0",
   (char*) "PAPI_TOT_INS",
   (char*) "PAPI_TOT_CYC",
 };
 constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
 }
+
 
 struct stats_t {
   long long time;
@@ -62,35 +64,55 @@ struct stats_t {
   }
 };
 
-struct trace_entry{
-  void* return_addr;
-  stats_t stats;
-};
 
 inline stats_t operator+(stats_t lhs, const stats_t& rhs) {
   return lhs += rhs;
 }
 
 
-void overflow(int signum, siginfo_t* info, void* context);
-string parse_backtrace_entry(string entry);
-stats_t read_rapl();
-string demangle_func_name(string mangled_name);
+struct event_info_t{
+  int component;
+  int eventset;
+  vector<int> eventcodes;
+};
 
-struct EnergyAuditor {
-  struct event_info_t{
-    int component;
-    int eventset;
-    vector<int> eventcodes;
-  };
-  static vector<event_info_t> eventsets;
-  static int myfd;
-  static vector<string> counter_names;
 
-  EnergyAuditor() {
-    assert(kSleepSecs == 0 &&
-           kSleepUsecs <= 500 && "ERROR: must update for less than .5ms (ie half rapl update rate");
+stats_t read_rapl(const vector<event_info_t>& eventsets){
+  stats_t res;
+  int cntr_offset = 0;
+  for(const auto& eventset : eventsets){
+    int retval=PAPI_stop(eventset.eventset, res.counters + cntr_offset);
+    if(retval != PAPI_OK){
+      PAPI_perror(NULL);
+      exit(-1);
+    }
+    retval = PAPI_start(eventset.eventset);
+    if(retval != PAPI_OK){
+      PAPI_perror(NULL);
+      exit(-1);
+    }
+    cntr_offset += eventset.eventcodes.size();
+  }
+  res.time = kSleepSecs * kBaseToNano + kSleepUsecs * kMicroToNano;
+  return res;
+}
+
+
+int main(int argc, char* argv[]) {
+  auto child = fork();
+  if(child > 0){ /* parent */
+    // Let's do this.
+    int status;
+    wait(&status);
+    if(WIFEXITED(status)){
+      cerr << "Child exited too fast.\n";
+      return 0;
+    }
+
     print("init\n");
+    vector<event_info_t> eventsets;
+    vector<string> counter_names;
+    map<void*, stats_t> stat_map;
     int retval;
     if ((retval = PAPI_library_init(PAPI_VER_CURRENT)) != PAPI_VER_CURRENT) {
       fprintf(stderr, "Unable to init PAPI library.\n");
@@ -156,54 +178,52 @@ struct EnergyAuditor {
         exit(-1);
       }
     }
-
-    // set up signal handler
-    struct sigaction sa;
-    sa.sa_sigaction = overflow;
-    sa.sa_flags = SA_SIGINFO | SA_RESTART;
-    if (sigaction(SIGALRM, &sa, nullptr) != 0) {
-      fprintf(stderr, "Unable to set up signal handler\n");
-      exit(-1);
+    ptrace(PTRACE_CONT, child, nullptr, nullptr);
+    struct user_regs_struct regs;
+    for(;;){
+      usleep(kSleepUsecs);
+      kill(child, SIGINT);
+      wait(&status);
+      if(WIFEXITED(status)){
+        break;
+      }
+      ptrace(PTRACE_GETREGS, child, nullptr, &regs);
+      void* rip = (void*) regs.rip;
+      auto rapl = read_rapl(eventsets);
+      stat_map[rip] += rapl;
+      ptrace(PTRACE_CONT, child, nullptr, nullptr);
     }
-
-    if ((myfd = open(kBufFileName, O_RDWR | O_CREAT | O_TRUNC,
-                     S_IRUSR | S_IWUSR)) == -1) {
-      cerr << "Unable to open file" << endl;
-      exit(-1);
-    }
-
-    struct itimerval work_time;
-    work_time.it_value.tv_sec = kSleepSecs;
-    work_time.it_value.tv_usec = kSleepUsecs;
-    work_time.it_interval.tv_sec = kSleepSecs;
-    work_time.it_interval.tv_usec = kSleepUsecs;
-    setitimer(ITIMER_REAL, &work_time, nullptr);
-  }
-
-  ~EnergyAuditor() {
     print("shutdown\n");
-    struct itimerval work_time;
-    work_time.it_value.tv_sec = 0;
-    work_time.it_value.tv_usec = 0;
-    work_time.it_interval.tv_sec = 0;
-    work_time.it_interval.tv_usec = 0;
-    setitimer(ITIMER_REAL, &work_time, nullptr);
-
-    ssize_t nread;
-    trace_entry entry;
-    map<string, stats_t> stat_map;
-    lseek(myfd, 0, SEEK_SET);
-    while ((nread = read(myfd, (void*)&entry, sizeof(entry))) ==
-           sizeof(entry)) {
-      auto symbol = backtrace_symbols(&entry.return_addr, 1)[0];
-      auto mangled = parse_backtrace_entry(symbol);
-      auto name = demangle_func_name(mangled);
-      stat_map[name] += entry.stats;
-    }
 
     vector<pair<string, stats_t> > stats;
     for (auto& func : stat_map) {
-      stats.emplace_back(func.first, func.second);
+      stringstream cmd;
+      cmd << "addr2line -f -s -C -e " << argv[1] << " " << func.first;
+      auto pipe = popen(cmd.str().c_str(), "r"); // call command and read output
+      if(!pipe) {
+        cerr << "Unable to open pipe to call addr2line.\n";
+        return -1;
+      }
+      char buffer[128];
+      string result = "";
+      while(!feof(pipe)){
+        if(fgets(buffer, 128, pipe) != nullptr){
+          result += buffer;
+        }
+      }
+      pclose(pipe);
+      stringstream resultstream{result};
+      string line;
+      getline(resultstream, line);
+
+      auto stat = find_if(begin(stats), end(stats),
+                          [&](const pair<string, stats_t>& obj){
+                            return obj.first == line;});
+      if(stat == end(stats)){
+        stats.emplace_back(line, func.second);
+      } else {
+        stat->second += func.second;
+      }
     }
 
     stable_sort(stats.begin(), stats.end(), [](const pair<string, stats_t>& a,
@@ -212,7 +232,7 @@ struct EnergyAuditor {
     });
 
     ofstream myfile;
-    myfile.open("eaudit.tsv");
+    myfile.open(kOutFileName);
     myfile << "Func Name"
            << "\t"
            << "Time(s)";
@@ -229,74 +249,16 @@ struct EnergyAuditor {
       myfile << endl;
     }
     myfile.close();
-  }
-};
-
-stats_t read_rapl(){
-  stats_t res;
-  int cntr_offset = 0;
-  for(const auto& eventset : EnergyAuditor::eventsets){
-    int retval=PAPI_stop(eventset.eventset, res.counters + cntr_offset);
-    if(retval != PAPI_OK){
-      PAPI_perror(NULL);
-      exit(-1);
-    }
-    retval = PAPI_start(eventset.eventset);
-    if(retval != PAPI_OK){
-      PAPI_perror(NULL);
-      exit(-1);
-    }
-    cntr_offset += eventset.eventcodes.size();
-  }
-  res.time = kSleepSecs * kBaseToNano + kSleepUsecs * kMicroToNano;
-  return res;
-}
-
-void overflow(int signum, siginfo_t* info, void* context){
-  if(signum == SIGALRM){
-    //print("overflow\n");
-
-    ucontext_t* uc = (ucontext_t*) context;
-    trace_entry entry;
-    entry.return_addr = (void*) uc->uc_mcontext.gregs[REG_RIP];
-    entry.stats = read_rapl();
-    auto res = write(EnergyAuditor::myfd, &entry, sizeof(entry));
-    if(res == -1){
-      cerr << "Unable to write to pipe." << endl;
-      exit(-1);
-    }
+  } else if(child == 0){ /* child */
+    // prepare for tracing
+    ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
+    // start up client program
+    execve(argv[1], &argv[1], nullptr);
+    cerr << "Error: child couldn't start its program!\n";
+    exit(-1);
+  } else { /* error */
+    cerr << "Error: couldn't fork audited program.\n";
+    return -1;
   }
 }
-
-string parse_backtrace_entry(string entry){
-  char* name_start = nullptr;
-  string::size_type name_len = 0;
-  for(char* p = (char*) entry.c_str(); *p; ++p){
-    if(*p == '('){
-      name_start = p + 1;
-    }
-    if(*p == '+' && name_start){
-      name_len = p - name_start;
-      break;
-    }
-  }
-  return string{name_start, name_len};
-}
-
-string demangle_func_name(string mangled_name) {
-  int status;
-  char* demangled_name = __cxxabiv1::__cxa_demangle(mangled_name.c_str(), NULL, 0, &status);
-  if (status == 0 && demangled_name != 0) {
-    string result(demangled_name);
-    free(demangled_name);
-    return result;
-  }
-  else
-    return string(mangled_name);
-}
-
-vector<EnergyAuditor::event_info_t> EnergyAuditor::eventsets;
-int EnergyAuditor::myfd;
-vector<string> EnergyAuditor::counter_names;
-static EnergyAuditor auditor;
 

@@ -3,21 +3,15 @@
 #include <ctime>
 #include <cstdlib>
 
-int bar(int n){
-  long a = 0;
-  for(int i = 0; i < 1000000000; ++i){
-    a += n * i;
+void test() {
+  long a = 0, b = 0;
+  for(long i = 0; i < 100000000; ++i){
+    a += i;
+    b += i;
   }
-  return a;
 }
 
 int main(){
-
-  std::cout << "Hello world" << std::endl;
-  bar(1);
-  //bar(2);
-  //bar(3);
-
-  return 0;
+  test();
 }
 
