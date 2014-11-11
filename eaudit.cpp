@@ -82,12 +82,11 @@ struct event_info_t{
 
 
 int read_target_byte(char *value, int child_pid, long address) {
-	int ret = 0;
 	/* Read a word at the target address, word aligned */
-  auto word_size = 4;
-	long aligned_address = address & ~(word_size - 1);
-	int byte = address - aligned_address;
-	ret = ptrace(PTRACE_PEEKDATA, child_pid, aligned_address);
+  auto word_size = 8;
+	auto aligned_address = address & ~(word_size - 1);
+	auto byte = address - aligned_address;
+	auto ret = ptrace(PTRACE_PEEKDATA, child_pid, aligned_address);
 	if (errno) {
 		ret = errno;
 	} else {
@@ -116,13 +115,12 @@ int read_target_memory(char *value, size_t length, int child_pid, long address) 
 
 int read_target_pointer(long *value, int child_pid, long address)
 {
-	int ret = 0;
-	ret = ptrace(PTRACE_PEEKDATA, child_pid, address, 0);
-	if (errno) {
+	auto ret = ptrace(PTRACE_PEEKDATA, child_pid, address, 0);
+	if (ret == -1) {
 		ret = errno;
-    perror(nullptr);
+    perror("read target pointer error: ");
 	} else {
-		*value = (long) ret;
+		*value = ret;
 		ret = 0;
 	}
 	return ret;
@@ -251,7 +249,8 @@ vector<void*> get_symbol_addresses(const vector<string>& magic_names,
       long link_map_address;
       int r_map_offset = offsetof(struct r_debug, r_map);
       /* Now we've found the r_debug structure, get the link map from it. */
-      auto ret = read_target_pointer(&link_map_address, child_pid, r_debug_address + r_map_offset );
+      //auto ret = read_target_pointer(&link_map_address, child_pid, r_debug_address + r_map_offset );
+      auto ret = read_target_memory((char*)&link_map_address, sizeof(link_map_address), child_pid, r_debug_address + r_map_offset);
       if (ret) {
         cerr << "Failed to read link map address.\n";
         exit(-1);
