@@ -2,7 +2,7 @@ CXX = g++
 
 EAFLAGS=-std=gnu++0x
 CXXFLAGS=-g -Wl,--export-dynamic -Wall
-LDFLAGS=-L/usr/local/lib -l:libpapi.so.5
+LDFLAGS=-L/usr/local/lib -l:libpapi.so.5 -lbfd
 
 ifeq ($(DEBUG),y)
 	EAFLAGS += -DDEBUG
@@ -21,7 +21,7 @@ eaudit.o: eaudit.cpp
 	$(CXX) $(EAFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 test: test.o
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) -lpthread
 
 test.o: test.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<

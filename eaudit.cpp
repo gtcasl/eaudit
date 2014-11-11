@@ -19,6 +19,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <ucontext.h>
+#include <bfd.h>
+#include <cstring>
+#include <link.h>
+#include <queue>
 
 #include <sys/user.h>
 #include <sys/ptrace.h>
@@ -77,6 +81,216 @@ struct event_info_t{
 };
 
 
+int read_target_byte(char *value, int child_pid, long address) {
+	int ret = 0;
+	/* Read a word at the target address, word aligned */
+  auto word_size = 4;
+	long aligned_address = address & ~(word_size - 1);
+	int byte = address - aligned_address;
+	ret = ptrace(PTRACE_PEEKDATA, child_pid, aligned_address);
+	if (errno) {
+		ret = errno;
+	} else {
+		*value = (ret >> (byte*8) ) & 0xff; 
+		ret = 0;
+	}
+	return ret;
+}
+
+
+int read_target_memory(char *value, size_t length, int child_pid, long address) {
+	/* We need to read word-aligned, otherwise ptrace blows up */
+	int ret = 0;
+	for (size_t offset = 0; offset < length; offset++ ) {
+		ret = read_target_byte(value+offset, child_pid, address + offset);
+		if (errno) {
+			ret = errno;
+			break;
+		} else {
+			ret = 0;
+		}
+	}
+	return ret; 
+}
+
+
+int read_target_pointer(long *value, int child_pid, long address)
+{
+	int ret = 0;
+	ret = ptrace(PTRACE_PEEKDATA, child_pid, address, 0);
+	if (errno) {
+		ret = errno;
+    perror(nullptr);
+	} else {
+		*value = (long) ret;
+		ret = 0;
+	}
+	return ret;
+}
+
+
+int read_target_string(char **value, int child_pid, long address)
+{
+	int ret = 0;
+	int length = 0;
+	char byte = 0;
+	int offset = 0;
+	
+	/* First find out the string length */
+	do {
+		ret = read_target_byte(&byte, child_pid, address + length);	
+		if (ret) {
+      cerr << "Failed to read string.\n";
+			return ret;
+		}
+		if (byte) {
+			length++;
+		}
+	} while (byte);
+	/* Now allocate memory for the string and terminator */
+	*value = (char*) malloc(length + 1);
+	if (NULL == *value) {
+		fprintf(stderr,"Failed to allocate string buffer in read_target_string\n");
+		return ENOMEM;
+	}
+
+	for (offset = 0; offset < (length + 1); offset ++) {
+		ret = read_target_byte((*value + offset), child_pid, address+offset);
+		if (ret) {
+			fprintf(stderr,"Failed to read string from target: %s\n",strerror(ret));
+			break;
+		} 
+	}
+	return ret;
+}
+
+
+using symbol = pair<string,long>;
+
+void add_symbols_from_file(vector<symbol>& symbols, string fname, long base_addr) {
+  // 1. initialize bfd symbol table
+  cout << " Opening file " << fname << "\n";
+	auto file = bfd_openr (fname.c_str(), nullptr);
+  if(file == nullptr){
+    cerr << "Unable to open bfd.\n";
+    exit(-1);
+  }
+	bfd_check_format(file, bfd_object);
+  cout << "Opened bfd file.\n";
+  bool is_static = true;
+  auto storage_needed = bfd_get_symtab_upper_bound(file);
+  if(storage_needed == 0){
+    /* Trying dynamic */
+    storage_needed = bfd_get_dynamic_symtab_upper_bound(file);
+    is_static = false;
+  }
+  if(storage_needed == 0){
+    cerr << "Storage for symbol table 0.\n";
+    exit(-1);
+  }
+  cout << "Need " << storage_needed << " bytes for symbol table.\n";
+  auto symbol_table = (asymbol**) malloc(storage_needed);
+  cout << "Canonicalizing table.\n";
+  auto num_symbols = is_static
+                         ? bfd_canonicalize_symtab(file, symbol_table)
+                         : bfd_canonicalize_dynamic_symtab(file, symbol_table);
+  cout << "Found " << num_symbols << " symbols.\n";
+  for(unsigned i = 0; i < num_symbols; ++i){
+    symbols.emplace_back(bfd_asymbol_name(symbol_table[i]),
+                         bfd_asymbol_value(symbol_table[i]));
+  }
+  cout << "Closing bfd file.\n";
+  bfd_close(file);
+}
+
+
+vector<void*> get_symbol_addresses(const vector<string>& magic_names,
+                                   int child_pid) {
+  vector<void*> addrs;
+  addrs.reserve(magic_names.size());
+
+  stringstream exe_name;
+  exe_name << "/proc/" << child_pid << "/exe";
+  bfd_init();
+  vector<symbol> symbols;
+  // Note: starting with just static symbols
+  add_symbols_from_file(symbols, exe_name.str(), 0 /* no base */);
+  auto dynamic_iter =
+      find_if(begin(symbols), end(symbols),
+              [&](const symbol& s) { return s.first.compare("_DYNAMIC") == 0; });
+  if(dynamic_iter != end(symbols)){
+    cout << "Examining dynamic symbols.\n";
+    auto dynamic = dynamic_iter->second;
+    int keep_looking = 1;
+    int found_it = 0;
+    long r_debug_address;
+    while (keep_looking) {
+      ElfW(Dyn) thisdyn;
+      auto ret = read_target_memory((char*)&thisdyn, sizeof( ElfW(Dyn) ), child_pid, dynamic);
+      if (ret) {
+        cerr << "Unable to read from DYNAMIC array.\n";
+        exit(-1);
+      }
+      if (DT_NULL == thisdyn.d_tag) {
+        cout << "Found DT_NULL entry.\n";
+        keep_looking = 0;
+      }
+      if (DT_DEBUG == thisdyn.d_tag) {
+        cout << "Found r_debug in _DYNAMIC array.\n";
+        r_debug_address = thisdyn.d_un.d_ptr;
+        cout << "dptr: " << thisdyn.d_un.d_ptr
+             << "\ndval: " << thisdyn.d_un.d_val << "\n";
+        keep_looking = 0;
+        found_it = 1;
+      }
+      dynamic += sizeof( ElfW(Dyn) );
+    }
+    /* Found the r_debug symbol, so we keep inspecting */
+    if(found_it){
+      /* Get the link map head */
+      long link_map_address;
+      int r_map_offset = offsetof(struct r_debug, r_map);
+      /* Now we've found the r_debug structure, get the link map from it. */
+      auto ret = read_target_pointer(&link_map_address, child_pid, r_debug_address + r_map_offset );
+      if (ret) {
+        cerr << "Failed to read link map address.\n";
+        exit(-1);
+      }
+      while(link_map_address){
+        struct link_map lm; 
+        auto ret = read_target_memory((char*)&lm, sizeof(lm), child_pid, link_map_address);
+        if(ret){
+          cerr << "Unable to read link map.\n";
+          exit(-1);
+        }
+        char* so_file;
+        ret = read_target_string(&so_file, child_pid, (long)lm.l_name);
+        auto base_addr = lm.l_addr;
+        link_map_address = (long) lm.l_next;
+
+        add_symbols_from_file(symbols, so_file, base_addr);
+      }
+    } else {
+      cout << "Unable to find r_debug symbol.\n";
+    }
+  }
+
+  for(const auto& symbol : symbols){
+    auto name = symbol.first;
+    // 2. for each symbol in table, check if bfd_asymbol_name in magic_names
+    auto magic_iter = find_if(begin(magic_names), end(magic_names),
+                              [&](const string& n) { return n.compare(name) == 0; });
+    // 3. if so, set the addr for that that name to bfd_asymbol_value (+ base_addr??)
+    if(magic_iter != end(magic_names)){
+      cout << "Found symbol " << *magic_iter << "\n";
+      auto idx = distance(begin(magic_names), magic_iter);
+      addrs[idx] = (void*) symbol.second;
+    }
+  }
+  return addrs;
+}
+
+
 stats_t read_rapl(const vector<event_info_t>& eventsets){
   stats_t res;
   int cntr_offset = 0;
@@ -107,7 +321,7 @@ void do_profiling(int child, char* child_name) {
   map<void*, stats_t> stat_map;
 
   /*
-   * Initialize profiling with PAPI
+   * Initialize PAPI
    */
   print("Init PAPI\n");
   int retval;
@@ -175,6 +389,16 @@ void do_profiling(int child, char* child_name) {
       exit(-1);
     }
   }
+
+  /*
+   * Initialize thread debugging info
+   */
+  vector<string> magic_names = {
+      "__pthread_threads_debug",  "__pthread_handles",
+      "__pthread_initial_thread", "__pthread_manager_thread",
+      "__pthread_sizeof_handle",  "__pthread_offsetof_descr",
+      "__pthread_offsetof_pid",   "__pthread_handles_num"};
+  auto magic_addrs = get_symbol_addresses(magic_names, child);
 
   /*
    * Let the child run, periodically interrupting to collect profile data.

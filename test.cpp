@@ -2,16 +2,23 @@
 #include <unistd.h>
 #include <ctime>
 #include <cstdlib>
+#include <pthread.h>
 
-void test() {
+using namespace std;
+
+void* test(void* unused) {
   long a = 0, b = 0;
-  for(long i = 0; i < 100000000; ++i){
+  cout << "Running test...\n";
+  for(long i = 0; i < 500000000; ++i){
     a += i;
     b += i;
   }
+  return NULL;
 }
 
 int main(){
-  test();
+  pthread_t thread;
+  pthread_create(&thread, NULL, test, NULL);
+  test(NULL);
 }
 
