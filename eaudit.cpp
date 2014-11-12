@@ -235,9 +235,18 @@ vector<void*> get_symbol_addresses(const vector<string>& magic_names,
       }
       if (DT_DEBUG == thisdyn.d_tag) {
         cout << "Found r_debug in _DYNAMIC array.\n";
+        /* We want to make sure the r_debug struct has been updated, so we 
+         * keep checking until it does.
+         */
+        while(thisdyn.d_un.d_ptr == 0){
+          // 1. Let the process resume and step one instruction/syscall
+          ptrace(PTRACE_SYSCALL, child_pid, nullptr, nullptr);
+          int status;
+          wait(&status);
+          // 2. Reread dyn value from child
+          read_target_memory((char*)&thisdyn, sizeof( ElfW(Dyn) ), child_pid, dynamic);
+        }
         r_debug_address = thisdyn.d_un.d_ptr;
-        cout << "dptr: " << thisdyn.d_un.d_ptr
-             << "\ndval: " << thisdyn.d_un.d_val << "\n";
         keep_looking = 0;
         found_it = 1;
       }
@@ -267,7 +276,10 @@ vector<void*> get_symbol_addresses(const vector<string>& magic_names,
         auto base_addr = lm.l_addr;
         link_map_address = (long) lm.l_next;
 
-        add_symbols_from_file(symbols, so_file, base_addr);
+        cout << "Trying to read file: " << so_file << endl;
+        if(strlen(so_file) > 0){
+          add_symbols_from_file(symbols, so_file, base_addr);
+        }
       }
     } else {
       cout << "Unable to find r_debug symbol.\n";
