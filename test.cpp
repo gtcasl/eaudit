@@ -17,6 +17,7 @@ void* test(void* unused) {
 }
 
 int main(){
+  cout << "Starting test.cpp...\n";
   pthread_t thread;
   pthread_create(&thread, NULL, test, NULL);
   test(NULL);
