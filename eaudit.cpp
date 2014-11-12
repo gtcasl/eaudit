@@ -19,8 +19,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <ucontext.h>
-#include <thread>
-#include <mutex>
 
 #include <sys/user.h>
 #include <sys/ptrace.h>
@@ -54,8 +52,7 @@ constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
 }
 
 
-vector<int> children_pids;
-mutex pid_mutex;
+volatile bool is_timer_done = false;
 
 
 struct stats_t {
@@ -83,6 +80,13 @@ struct event_info_t{
 };
 
 
+void overflow(int signum, siginfo_t* info, void* context){
+  if(signum == SIGALRM){
+    is_timer_done = true;
+  }
+}
+
+
 stats_t read_rapl(const vector<event_info_t>& eventsets){
   stats_t res;
   int cntr_offset = 0;
@@ -104,38 +108,11 @@ stats_t read_rapl(const vector<event_info_t>& eventsets){
 }
 
 
-void listen_for_threading_ops() {
-  int status;
-  cout << "Starting to listen for new threads...\n";
-  for(;;){
-    auto halted_pid = waitpid(-1, &status, __WALL); // wait for the children processes to make a move
-    if(status>>8 == (SIGTRAP | (PTRACE_EVENT_CLONE<<8))) { // new thread created
-      cout << "New thread created.\n";
-      lock_guard<mutex> lock{pid_mutex};
-      unsigned long new_pid;
-      ptrace(PTRACE_GETEVENTMSG, halted_pid, nullptr, &new_pid);
-      auto pid_iter = find(begin(children_pids), end(children_pids), new_pid);
-      if(pid_iter != end(children_pids)) {
-        cerr << "Already have this newly cloned pid: " << new_pid << ".\n";
-        exit(-1);
-      }
-      cout << "Thread ID " << new_pid << " created from thread ID " << halted_pid << "\n";
-      children_pids.push_back(new_pid);
-    } else if(WIFSTOPPED(status)){
-      cout << "Halted thread " << halted_pid << "\n";
-      ptrace(PTRACE_CONT, halted_pid, nullptr, nullptr);
-    } else {
-      cout << "Something else??\n";
-      ptrace(PTRACE_CONT, halted_pid, nullptr, nullptr);
-    }
-  }
-}
-
-
 void do_profiling(int profilee_pid, char* profilee_name) {
   /*
    * Structures holding profiling data
    */
+  vector<int> children_pids;
   vector<event_info_t> eventsets;
   vector<string> counter_names;
   map<void*, stats_t> stat_map;
@@ -213,15 +190,26 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   /*
    * Setup tracing of all profilee threads
    */
-  // 0. Add profilee's pid to list of children pids, since it's technically
-  // a thread too.
   children_pids.push_back(profilee_pid);
-  // 1. Tell ptrace to notify us when a new thread is created
-  // ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr);
   ptrace(PTRACE_SETOPTIONS, profilee_pid, nullptr,
          PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE);
-  // 2. Start up listener thread for monitoring thread creation/destruction
-  thread listener_thread{listen_for_threading_ops};
+
+  /*
+   * Set up timer
+   */
+  struct sigaction sa;
+  sa.sa_sigaction = overflow;
+  sa.sa_flags = SA_SIGINFO | SA_RESTART;
+  if (sigaction(SIGALRM, &sa, nullptr) != 0) {
+    cerr << "Unable to set up signal handler\n";
+    exit(-1);
+  }
+  struct itimerval work_time;
+  work_time.it_value.tv_sec = kSleepSecs;
+  work_time.it_value.tv_usec = kSleepUsecs;
+  work_time.it_interval.tv_sec = kSleepSecs;
+  work_time.it_interval.tv_usec = kSleepUsecs;
+  setitimer(ITIMER_REAL, &work_time, nullptr);
 
   /*
    * Let the profilee run, periodically interrupting to collect profile data.
@@ -230,39 +218,73 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr);
   struct user_regs_struct regs;
   for (;;) {
-    usleep(kSleepUsecs);
-    pid_mutex.lock();
-    // if we have no children, quit
-    if(children_pids.size() == 0){
-      break;
-    }
-    // kill all the children
-    for(const auto& child : children_pids){
-      kill(child, SIGINT);
-    }
-    // wait for all threads to halt
-    for(const auto& child : children_pids){
-      int status;
-      cout << "waiting on pid " << child << "\n";
-      auto waitret = waitpid(child, &status, __WALL);
-      if(waitret == -1){
-        cerr << "Bad wait!\n";
-        exit(-1);
+    int status;
+    auto wait_res = waitpid(-1, &status, __WALL);
+    if(wait_res == -1){ // bad wait!
+      if(errno == EINTR && is_timer_done){ // timer expired, do profiling
+        // halt timer
+        work_time.it_value.tv_sec = 0;
+        work_time.it_value.tv_usec = 0;
+        setitimer(ITIMER_REAL, &work_time, nullptr);
+        
+        // kill all the children
+        for(const auto& child : children_pids){
+          kill(child, SIGINT);
+        }
+        // wait for all threads to halt
+        for(const auto& child : children_pids){
+          int status;
+          cout << "waiting on pid " << child << "\n";
+          auto waitret = waitpid(child, &status, __WALL);
+          if(waitret == -1){
+            cerr << "Bad wait!\n";
+            exit(-1);
+          }
+        }
+        // read all the children registers
+        for(const auto& child : children_pids){
+          ptrace(PTRACE_GETREGS, child, nullptr, &regs);
+          void* rip = (void*)regs.rip;
+          auto rapl = read_rapl(eventsets);
+          stat_map[rip] += rapl;
+        }
+        // resume all children
+        for(const auto& child : children_pids){
+          ptrace(PTRACE_CONT, child, nullptr, nullptr);
+        }
+        is_timer_done = false;
+        // resume timer
+        work_time.it_value.tv_sec = kSleepSecs;
+        work_time.it_value.tv_usec = kSleepUsecs;
+        setitimer(ITIMER_REAL, &work_time, nullptr);
+        continue;
+      }
+    } else { // good wait, add new thread
+      if(status>>8 == (SIGTRAP | (PTRACE_EVENT_CLONE<<8))) { // new thread created
+        cout << "New thread created.\n";
+        unsigned long new_pid;
+        ptrace(PTRACE_GETEVENTMSG, wait_res, nullptr, &new_pid);
+        auto pid_iter = find(begin(children_pids), end(children_pids), new_pid);
+        if(pid_iter != end(children_pids)) {
+          cerr << "Already have this newly cloned pid: " << new_pid << ".\n";
+          exit(-1);
+        }
+        cout << "Thread ID " << new_pid << " created from thread ID " << wait_res << "\n";
+        ptrace(PTRACE_CONT, wait_res, nullptr, nullptr);
+      } else if(WIFEXITED(status)){
+        auto pid_iter = find(begin(children_pids), end(children_pids), wait_res);
+        if(pid_iter == end(children_pids)){
+          cout << "Error: Saw exit from pid we haven't seen before!\n";
+          exit(-1);
+        }
+        children_pids.erase(pid_iter);
+        if(children_pids.size() == 0){ // All done, not tracking any more threads
+          break;
+        }
+      } else { // some other halt, just let it go
+        ptrace(PTRACE_CONT, wait_res, nullptr, nullptr);
       }
     }
-    // read all the children registers
-    for(const auto& child : children_pids){
-      // TODO make sure we wait for SIGINT handler, not clone()
-      ptrace(PTRACE_GETREGS, child, nullptr, &regs);
-      void* rip = (void*)regs.rip;
-      auto rapl = read_rapl(eventsets);
-      stat_map[rip] += rapl;
-    }
-    // resume all children
-    for(const auto& child : children_pids){
-      ptrace(PTRACE_CONT, child, nullptr, nullptr);
-    }
-    pid_mutex.unlock();
   }
 
   /*
