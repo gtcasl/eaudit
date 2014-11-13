@@ -35,8 +35,8 @@
 using namespace std;
 
 namespace{
-const unsigned kSleepSecs = 0;
-const unsigned kSleepUsecs = 500;
+const unsigned kSleepSecs = 1;
+const unsigned kSleepUsecs = 0;
 const double kNanoToBase = 1e-9;
 const long long kBaseToNano = 1000000000;
 const long long kMicroToNano = 1000;
@@ -192,7 +192,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
    */
   children_pids.push_back(profilee_pid);
   ptrace(PTRACE_SETOPTIONS, profilee_pid, nullptr,
-         PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE);
+         PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
 
   /*
    * Set up timer
@@ -219,9 +219,11 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   struct user_regs_struct regs;
   for (;;) {
     int status;
-    //auto wait_res = waitpid(-1, &status, __WALL);
-    auto wait_res = wait(&status);
+    cout << "waiting\n";
+    //auto wait_res = wait(&status);
+    auto wait_res = waitpid(-1, &status, __WALL);
     if(wait_res == -1){ // bad wait!
+      cout << "bad wait\n";
       if(errno == EINTR && is_timer_done){ // timer expired, do profiling
         // halt timer
         work_time.it_value.tv_sec = 0;
@@ -249,8 +251,12 @@ void do_profiling(int profilee_pid, char* profilee_name) {
         work_time.it_value.tv_usec = kSleepUsecs;
         setitimer(ITIMER_REAL, &work_time, nullptr);
         continue;
+      } else {
+        cout << "OTHER\n";
+        exit(-1);
       }
     } else { // good wait, add new thread
+      cout << "good wait on " << wait_res << "\n";
       if(status>>8 == (SIGTRAP | (PTRACE_EVENT_CLONE<<8))) { // new thread created
         cout << "New thread created.\n";
         unsigned long new_pid;
@@ -262,18 +268,27 @@ void do_profiling(int profilee_pid, char* profilee_name) {
         }
         cout << "Thread ID " << new_pid << " created from thread ID " << wait_res << "\n";
         children_pids.push_back(new_pid);
+        ptrace(PTRACE_SETOPTIONS, new_pid, nullptr,
+               PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
         ptrace(PTRACE_CONT, wait_res, nullptr, nullptr);
-      } else if(WIFEXITED(status)){
-        auto pid_iter = find(begin(children_pids), end(children_pids), wait_res);
-        if(pid_iter == end(children_pids)){
-          cout << "Error: Saw exit from pid " << wait_res << ". We haven't seen before!\n";
-          exit(-1);
+      } else {
+        if(WIFSTOPPED(status)){
+          cout << "Stopsig: " << WSTOPSIG(status) << "\n";
         }
-        children_pids.erase(pid_iter);
-        if(children_pids.size() == 0){ // All done, not tracking any more threads
-          break;
+        if(status>>8 == (SIGTRAP | (PTRACE_EVENT_EXIT<<8))){
+          cout << "Deleting child " << wait_res << "\n";
+          auto pid_iter = find(begin(children_pids), end(children_pids), wait_res);
+          if(pid_iter == end(children_pids)){
+            cout << "Error: Saw exit from pid " << wait_res << ". We haven't seen before!\n";
+            exit(-1);
+          }
+          children_pids.erase(pid_iter);
+          ptrace(PTRACE_CONT, wait_res, nullptr, nullptr);
+          if(children_pids.size() == 0){ // All done, not tracking any more threads
+            break;
+          }
+          cout << children_pids.size() << " children left.\n";
         }
-      } else { // some other halt, just let it go
         ptrace(PTRACE_CONT, wait_res, nullptr, nullptr);
       }
     }
