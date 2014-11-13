@@ -199,7 +199,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
    */
   struct sigaction sa;
   sa.sa_sigaction = overflow;
-  sa.sa_flags = SA_SIGINFO | SA_RESTART;
+  sa.sa_flags = SA_SIGINFO;
   if (sigaction(SIGALRM, &sa, nullptr) != 0) {
     cerr << "Unable to set up signal handler\n";
     exit(-1);
@@ -219,7 +219,8 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   struct user_regs_struct regs;
   for (;;) {
     int status;
-    auto wait_res = waitpid(-1, &status, __WALL);
+    //auto wait_res = waitpid(-1, &status, __WALL);
+    auto wait_res = wait(&status);
     if(wait_res == -1){ // bad wait!
       if(errno == EINTR && is_timer_done){ // timer expired, do profiling
         // halt timer
@@ -229,17 +230,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
         
         // kill all the children
         for(const auto& child : children_pids){
-          kill(child, SIGINT);
-        }
-        // wait for all threads to halt
-        for(const auto& child : children_pids){
-          int status;
-          cout << "waiting on pid " << child << "\n";
-          auto waitret = waitpid(child, &status, __WALL);
-          if(waitret == -1){
-            cerr << "Bad wait!\n";
-            exit(-1);
-          }
+          kill(child, SIGSTOP);
         }
         // read all the children registers
         for(const auto& child : children_pids){
@@ -270,11 +261,12 @@ void do_profiling(int profilee_pid, char* profilee_name) {
           exit(-1);
         }
         cout << "Thread ID " << new_pid << " created from thread ID " << wait_res << "\n";
+        children_pids.push_back(new_pid);
         ptrace(PTRACE_CONT, wait_res, nullptr, nullptr);
       } else if(WIFEXITED(status)){
         auto pid_iter = find(begin(children_pids), end(children_pids), wait_res);
         if(pid_iter == end(children_pids)){
-          cout << "Error: Saw exit from pid we haven't seen before!\n";
+          cout << "Error: Saw exit from pid " << wait_res << ". We haven't seen before!\n";
           exit(-1);
         }
         children_pids.erase(pid_iter);
@@ -312,6 +304,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
     stringstream resultstream{result};
     string line;
     getline(resultstream, line);
+    print("Reporting function %s\n", line.c_str());
 
     auto stat = find_if(
         begin(stats), end(stats),

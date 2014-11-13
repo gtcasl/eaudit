@@ -13,6 +13,7 @@ void* test(void* unused) {
     a += i;
     b += i;
   }
+  cout << "Done with test\n";
   return NULL;
 }
 
