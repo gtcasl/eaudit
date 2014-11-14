@@ -81,6 +81,8 @@ struct event_info_t{
 
 
 void overflow(int signum, siginfo_t* info, void* context){
+  (void)info;
+  (void)context;
   if(signum == SIGALRM){
     is_timer_done = true;
   }
@@ -123,20 +125,22 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   print("Init PAPI\n");
   int retval;
   if ((retval = PAPI_library_init(PAPI_VER_CURRENT)) != PAPI_VER_CURRENT) {
-    fprintf(stderr, "Unable to init PAPI library.\n");
+    cerr << "Unable to init PAPI library: ";
     switch (retval) {
       case PAPI_EINVAL:
-        fprintf(stderr, "einval\n");
+        cerr << "einval\n";
         break;
       case PAPI_ENOMEM:
-        fprintf(stderr, "enomem\n");
+        cerr << "enomem\n";
         break;
       case PAPI_ESBSTR:
-        fprintf(stderr, "esbstr\n");
+        cerr << "esbstr\n";
         break;
       case PAPI_ESYS:
-        fprintf(stderr, "esys\n");
+        cerr << "esys\n";
         break;
+      default:
+        cerr << "\n";
     }
     exit(-1);
   }
@@ -219,11 +223,9 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   struct user_regs_struct regs;
   for (;;) {
     int status;
-    cout << "waiting\n";
     //auto wait_res = wait(&status);
     auto wait_res = waitpid(-1, &status, __WALL);
     if(wait_res == -1){ // bad wait!
-      cout << "bad wait\n";
       if(errno == EINTR && is_timer_done){ // timer expired, do profiling
         // halt timer
         work_time.it_value.tv_sec = 0;
@@ -252,13 +254,12 @@ void do_profiling(int profilee_pid, char* profilee_name) {
         setitimer(ITIMER_REAL, &work_time, nullptr);
         continue;
       } else {
-        cout << "OTHER\n";
+        cerr << "Error: unexpected return from wait.\n";
         exit(-1);
       }
     } else { // good wait, add new thread
-      cout << "good wait on " << wait_res << "\n";
       if(status>>8 == (SIGTRAP | (PTRACE_EVENT_CLONE<<8))) { // new thread created
-        cout << "New thread created.\n";
+        print("New thread created.\n");
         unsigned long new_pid;
         ptrace(PTRACE_GETEVENTMSG, wait_res, nullptr, &new_pid);
         auto pid_iter = find(begin(children_pids), end(children_pids), new_pid);
@@ -266,29 +267,26 @@ void do_profiling(int profilee_pid, char* profilee_name) {
           cerr << "Already have this newly cloned pid: " << new_pid << ".\n";
           exit(-1);
         }
-        cout << "Thread ID " << new_pid << " created from thread ID " << wait_res << "\n";
+        print("Thread ID %lu created from thread ID %d\n", new_pid, wait_res);
         children_pids.push_back(new_pid);
         ptrace(PTRACE_SETOPTIONS, new_pid, nullptr,
                PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
         ptrace(PTRACE_CONT, wait_res, nullptr, nullptr);
       } else {
-        if(WIFSTOPPED(status)){
-          cout << "Stopsig: " << WSTOPSIG(status) << "\n";
-        }
         if(status>>8 == (SIGTRAP | (PTRACE_EVENT_EXIT<<8))){
-          cout << "Deleting child " << wait_res << "\n";
+          print("Deleting child %d\n", wait_res);
           auto pid_iter = find(begin(children_pids), end(children_pids), wait_res);
           if(pid_iter == end(children_pids)){
-            cout << "Error: Saw exit from pid " << wait_res << ". We haven't seen before!\n";
+            cerr << "Error: Saw exit from pid " << wait_res << ". We haven't seen before!\n";
             exit(-1);
           }
           children_pids.erase(pid_iter);
-          ptrace(PTRACE_CONT, wait_res, nullptr, nullptr);
           if(children_pids.size() == 0){ // All done, not tracking any more threads
             break;
           }
-          cout << children_pids.size() << " children left.\n";
+          print("%lu children left\n", children_pids.size());
         }
+        // always let the stopped tracee continue
         ptrace(PTRACE_CONT, wait_res, nullptr, nullptr);
       }
     }
@@ -360,6 +358,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
 }
 
 int main(int argc, char* argv[]) {
+  (void)argc;
   /*
    * Fork a process to run the profiled application
    */

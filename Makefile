@@ -1,7 +1,7 @@
 CXX = g++
 
 EAFLAGS=-std=gnu++0x
-CXXFLAGS=-g -Wl,--export-dynamic -Wall -pthread
+CXXFLAGS=-g -Wl,--export-dynamic -Wall -Wextra -pthread
 LDFLAGS=-L/usr/local/lib -l:libpapi.so.5
 
 ifeq ($(DEBUG),y)
