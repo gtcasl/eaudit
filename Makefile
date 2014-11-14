@@ -1,5 +1,5 @@
-CXXFLAGS=-g -std=gnu++0x -Wall -Wextra
-LDFLAGS=-lpapi
+CXXFLAGS=-g -std=gnu++0x -Wall -Wextra -pthread
+LDFLAGS=-lpapi -lpthread
 
 ifeq ($(DEBUG),y)
 	CXXFLAGS += -O0 -DDEBUG

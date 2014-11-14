@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cerrno>
+#include <condition_variable>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -9,12 +10,15 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <mutex>
+#include <pthread.h>
 #include <sstream>
 #include <string>
 #include <sys/ptrace.h>
 #include <sys/time.h>
 #include <sys/user.h>
 #include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
 #include <utility>
 #include <vector>
@@ -48,6 +52,10 @@ constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
 
 
 volatile bool is_timer_done = false;
+volatile bool is_done = false;
+volatile bool should_profile = false;
+mutex profile_mutex;
+condition_variable profile_cv;
 
 
 struct stats_t {
@@ -106,40 +114,9 @@ stats_t read_rapl(const vector<event_info_t>& eventsets){
 }
 
 
-void do_profiling(int profilee_pid, char* profilee_name) {
-  /*
-   * Structures holding profiling data
-   */
-  vector<int> children_pids;
+vector<event_info_t> init_papi_counters() {
   vector<event_info_t> eventsets;
-  map<void*, stats_t> stat_map;
-
-  /*
-   * Initialize PAPI
-   */
-  print("Init PAPI\n");
   int retval;
-  if ((retval = PAPI_library_init(PAPI_VER_CURRENT)) != PAPI_VER_CURRENT) {
-    cerr << "Unable to init PAPI library: ";
-    switch (retval) {
-      case PAPI_EINVAL:
-        cerr << "einval\n";
-        break;
-      case PAPI_ENOMEM:
-        cerr << "enomem\n";
-        break;
-      case PAPI_ESBSTR:
-        cerr << "esbstr\n";
-        break;
-      case PAPI_ESYS:
-        cerr << "esys\n";
-        break;
-      default:
-        cerr << "\n";
-    }
-    exit(-1);
-  }
-
   for (auto& event_name : kCounterNames) {
     int event_code;
     retval = PAPI_event_name_to_code((char*)event_name, &event_code);
@@ -181,6 +158,84 @@ void do_profiling(int profilee_pid, char* profilee_name) {
       PAPI_perror(NULL);
       exit(-1);
     }
+  }
+  return eventsets;
+}
+
+
+void profile_core(int id) {
+  /* Set affinity */
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(id, &cpuset);
+  pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+
+  /* Initialize PAPI counters for this core */
+  auto counters = init_papi_counters();
+
+  while(!is_done){
+    // wait on condition variable
+    unique_lock<mutex> locker(profile_mutex);
+    cout << "TID " << id << " waiting\n";
+    profile_cv.wait(locker, []{ return should_profile; });
+    // do profiling
+    cout << "TID " << id << " profiling\n";
+    // update output (global) data
+    // go back to sleep
+    //should_profile = false;
+    //WHELKHKLJDHFLKSDHFLSKD
+    //TODO
+    //where to set should_profile back to false???
+  }
+  cout << "TID " << id << " DONE\n";
+}
+
+
+void do_profiling(int profilee_pid, char* profilee_name) {
+  /*
+   * Structures holding profiling data
+   */
+  vector<int> children_pids;
+  map<void*, stats_t> stat_map;
+  vector<thread> threads;
+  threads.reserve(thread::hardware_concurrency());
+
+  /*
+   * Initialize PAPI
+   */
+  print("Init PAPI\n");
+  int retval;
+  if ((retval = PAPI_library_init(PAPI_VER_CURRENT)) != PAPI_VER_CURRENT) {
+    cerr << "Unable to init PAPI library: ";
+    switch (retval) {
+      case PAPI_EINVAL:
+        cerr << "einval\n";
+        break;
+      case PAPI_ENOMEM:
+        cerr << "enomem\n";
+        break;
+      case PAPI_ESBSTR:
+        cerr << "esbstr\n";
+        break;
+      case PAPI_ESYS:
+        cerr << "esys\n";
+        break;
+      default:
+        cerr << "\n";
+    }
+    exit(-1);
+  }
+
+  /*
+   * Initialize PAPI measurement threads
+   */
+  if(PAPI_thread_init(pthread_self) != PAPI_OK){
+    cerr << "Unable to init PAPI threads\n";
+    exit(-1);
+  }
+  for(unsigned int i = 0; i < thread::hardware_concurrency(); ++i){
+    cout << "eaudit Starting thread " << i << "\n";
+    threads.emplace_back(profile_core, i);
   }
 
   /*
@@ -228,6 +283,21 @@ void do_profiling(int profilee_pid, char* profilee_name) {
         for(const auto& child : children_pids){
           kill(child, SIGSTOP);
         }
+
+        // TODO
+        // find last executing core ID for each child
+        // send signal requesting updates from each profiling thread associated with a child core id
+        {
+          unique_lock<mutex> locker(profile_mutex);
+          should_profile = true;
+          cout << "EAUDIT notifying\n";
+          profile_cv.notify_all();
+        }
+        // wait on output from profiling threads and accumulate
+
+
+        /*
+
         // read all the children registers
         for(const auto& child : children_pids){
           ptrace(PTRACE_GETREGS, child, nullptr, &regs);
@@ -235,6 +305,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
           auto rapl = read_rapl(eventsets);
           stat_map[rip] += rapl;
         }
+        */
         // resume all children
         for(const auto& child : children_pids){
           ptrace(PTRACE_CONT, child, nullptr, nullptr);
@@ -244,7 +315,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
         work_time.it_value.tv_sec = kSleepSecs;
         work_time.it_value.tv_usec = kSleepUsecs;
         setitimer(ITIMER_REAL, &work_time, nullptr);
-        continue;
+        continue; // this isn't really necessary
       } else {
         cerr << "Error: unexpected return from wait.\n";
         exit(-1);
@@ -274,6 +345,15 @@ void do_profiling(int profilee_pid, char* profilee_name) {
           }
           children_pids.erase(pid_iter);
           if(children_pids.size() == 0){ // All done, not tracking any more threads
+            is_done = true;
+            {
+              unique_lock<mutex> locker(profile_mutex);
+              should_profile = true;
+              profile_cv.notify_all();
+            }
+            for(auto& thread : threads){
+              thread.join();
+            }
             break;
           }
           print("%lu children left\n", children_pids.size());
@@ -329,6 +409,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   /*
    * Write profile to file
    */
+  /*
   ofstream myfile;
   myfile.open(kOutFileName);
   myfile << "Func Name"
@@ -349,6 +430,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
     myfile << endl;
   }
   myfile.close();
+  */
 }
 
 int main(int argc, char* argv[]) {

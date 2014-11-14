@@ -11,12 +11,12 @@ struct param{
 void* test(void* nops) {
   long a = 0, b = 0;
   long nops_l = ((param*)nops)->nops;
-  cout << "Running test thread " << ((param*)nops)->pid << "...\n";
+  //cout << "Running test thread " << ((param*)nops)->pid << "...\n";
   for(long i = 0; i < nops_l; ++i){
     a += i;
     b += i;
   }
-  cout << "Done with test thread " << ((param*)nops)->pid << "\n";
+  //cout << "Done with test thread " << ((param*)nops)->pid << "\n";
   return NULL;
 }
 
