@@ -53,9 +53,9 @@ constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
 
 volatile bool is_timer_done = false;
 volatile bool is_done = false;
-volatile bool should_profile = false;
 mutex profile_mutex;
 condition_variable profile_cv;
+vector<bool> should_profile;
 
 
 struct stats_t {
@@ -175,19 +175,21 @@ void profile_core(int id) {
 
   while(!is_done){
     // wait on condition variable
-    unique_lock<mutex> locker(profile_mutex);
-    cout << "TID " << id << " waiting\n";
-    profile_cv.wait(locker, []{ return should_profile; });
+    {
+      unique_lock<mutex> locker(profile_mutex);
+      print("TID %d waiting\n", id);
+      profile_cv.wait(locker, [&]{ return should_profile[id]; });
+    }
     // do profiling
-    cout << "TID " << id << " profiling\n";
+    print("TID %d profiling\n", id);
     // update output (global) data
     // go back to sleep
-    //should_profile = false;
-    //WHELKHKLJDHFLKSDHFLSKD
-    //TODO
-    //where to set should_profile back to false???
+    {
+      lock_guard<mutex> lock(profile_mutex);
+      should_profile[id] = false;
+    }
   }
-  cout << "TID " << id << " DONE\n";
+  print("TID %d DONE\n", id);
 }
 
 
@@ -198,7 +200,12 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   vector<int> children_pids;
   map<void*, stats_t> stat_map;
   vector<thread> threads;
-  threads.reserve(thread::hardware_concurrency());
+  auto nthreads = thread::hardware_concurrency();
+  threads.reserve(nthreads);
+  {
+    lock_guard<mutex> lock(profile_mutex);
+    should_profile.resize(nthreads, false);
+  }
 
   /*
    * Initialize PAPI
@@ -233,8 +240,8 @@ void do_profiling(int profilee_pid, char* profilee_name) {
     cerr << "Unable to init PAPI threads\n";
     exit(-1);
   }
-  for(unsigned int i = 0; i < thread::hardware_concurrency(); ++i){
-    cout << "eaudit Starting thread " << i << "\n";
+  for(unsigned int i = 0; i < nthreads; ++i){
+    print("eaudit Starting thread %d\n", i);
     threads.emplace_back(profile_core, i);
   }
 
@@ -288,9 +295,14 @@ void do_profiling(int profilee_pid, char* profilee_name) {
         // find last executing core ID for each child
         // send signal requesting updates from each profiling thread associated with a child core id
         {
+          lock_guard<mutex> lock(profile_mutex);
+          for(unsigned int i = 0; i < nthreads; ++i){
+            should_profile[i] = true;
+          }
+        }
+        {
           unique_lock<mutex> locker(profile_mutex);
-          should_profile = true;
-          cout << "EAUDIT notifying\n";
+          print("EAUDIT notifying\n");
           profile_cv.notify_all();
         }
         // wait on output from profiling threads and accumulate
@@ -347,8 +359,13 @@ void do_profiling(int profilee_pid, char* profilee_name) {
           if(children_pids.size() == 0){ // All done, not tracking any more threads
             is_done = true;
             {
+              lock_guard<mutex> lock(profile_mutex);
+              for(unsigned int i = 0; i < nthreads; ++i){
+                should_profile[i] = true;
+              }
+            }
+            {
               unique_lock<mutex> locker(profile_mutex);
-              should_profile = true;
               profile_cv.notify_all();
             }
             for(auto& thread : threads){
