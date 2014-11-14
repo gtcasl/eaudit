@@ -1,7 +1,4 @@
 #include <iostream>
-#include <unistd.h>
-#include <ctime>
-#include <cstdlib>
 #include <pthread.h>
 
 using namespace std;

@@ -1,28 +1,23 @@
-#include <sstream>
-#include <cxxabi.h>
-#include <cassert>
-#include <iomanip>
 #include <algorithm>
-#include <map>
-#include <stack>
-#include <limits>
-#include <vector>
-#include <string>
-#include <iostream>
-#include <fstream>
-#include <sys/time.h>
-#include <signal.h>
-#include <execinfo.h>
-#include <errno.h>
+#include <cassert>
+#include <cerrno>
+#include <csignal>
 #include <cstdio>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <ucontext.h>
-
-#include <sys/user.h>
+#include <cstdlib>
+#include <fstream>
+#include <iostream>
+#include <iterator>
+#include <limits>
+#include <map>
+#include <sstream>
+#include <string>
 #include <sys/ptrace.h>
+#include <sys/time.h>
+#include <sys/user.h>
 #include <sys/wait.h>
+#include <unistd.h>
+#include <utility>
+#include <vector>
 
 #include "papi.h"
 
