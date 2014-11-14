@@ -70,8 +70,9 @@ inline stats_t operator+(stats_t lhs, const stats_t& rhs) {
 
 struct event_info_t{
   int component;
-  int eventset;
-  vector<int> eventcodes;
+  int set;
+  vector<int> codes;
+  vector<string> names;
 };
 
 
@@ -88,17 +89,17 @@ stats_t read_rapl(const vector<event_info_t>& eventsets){
   stats_t res;
   int cntr_offset = 0;
   for(const auto& eventset : eventsets){
-    int retval=PAPI_stop(eventset.eventset, res.counters + cntr_offset);
+    int retval=PAPI_stop(eventset.set, res.counters + cntr_offset);
     if(retval != PAPI_OK){
       PAPI_perror(NULL);
       exit(-1);
     }
-    retval = PAPI_start(eventset.eventset);
+    retval = PAPI_start(eventset.set);
     if(retval != PAPI_OK){
       PAPI_perror(NULL);
       exit(-1);
     }
-    cntr_offset += eventset.eventcodes.size();
+    cntr_offset += eventset.codes.size();
   }
   res.time = kSleepSecs * kBaseToNano + kSleepUsecs * kMicroToNano;
   return res;
@@ -111,7 +112,6 @@ void do_profiling(int profilee_pid, char* profilee_name) {
    */
   vector<int> children_pids;
   vector<event_info_t> eventsets;
-  vector<string> counter_names;
   map<void*, stats_t> stat_map;
 
   /*
@@ -154,10 +154,12 @@ void do_profiling(int profilee_pid, char* profilee_name) {
     if (elem == end(eventsets)) {
       event_info_t new_info;
       new_info.component = component;
-      new_info.eventcodes.push_back(event_code);
+      new_info.codes.push_back(event_code);
+      new_info.names.emplace_back(event_name);
       eventsets.push_back(new_info);
     } else {
-      elem->eventcodes.push_back(event_code);
+      elem->codes.push_back(event_code);
+      elem->names.emplace_back(event_name);
     }
   }
 
@@ -168,17 +170,12 @@ void do_profiling(int profilee_pid, char* profilee_name) {
       PAPI_perror(NULL);
       exit(-1);
     }
-    for (const auto& eventcode : event.eventcodes) {
-      char name[PAPI_MAX_STR_LEN];
-      PAPI_event_code_to_name(eventcode, name);
-      counter_names.emplace_back(name);
-    }
-    PAPI_add_events(eventset, &event.eventcodes[0], event.eventcodes.size());
+    PAPI_add_events(eventset, &event.codes[0], event.codes.size());
     if (retval != PAPI_OK) {
       PAPI_perror(NULL);
       exit(-1);
     }
-    event.eventset = eventset;
+    event.set = eventset;
     retval = PAPI_start(eventset);
     if (retval != PAPI_OK) {
       PAPI_perror(NULL);
@@ -337,8 +334,10 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   myfile << "Func Name"
          << "\t"
          << "Time(s)";
-  for (const auto& name : counter_names) {
-    myfile << "\t" << name;
+  for(const auto& eventset : eventsets){
+    for(const auto& name : eventset.names){
+      myfile << "\t" << name;
+    }
   }
   myfile << endl;
 
