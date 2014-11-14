@@ -1,12 +1,8 @@
-CXX = g++
-
-EAFLAGS=-std=gnu++0x
-CXXFLAGS=-g -Wl,--export-dynamic -Wall -Wextra -pthread
-LDFLAGS=-L/usr/local/lib -l:libpapi.so.5
+CXXFLAGS=-g -std=gnu++0x -Wall -Wextra
+LDFLAGS=-lpapi
 
 ifeq ($(DEBUG),y)
-	EAFLAGS += -DDEBUG
-	CXXFLAGS += -O0
+	CXXFLAGS += -O0 -DDEBUG
 else
 	CXXFLAGS += -O3
 endif
@@ -18,13 +14,13 @@ eaudit: eaudit.o
 	sudo setcap cap_sys_rawio=ep $@
 
 eaudit.o: eaudit.cpp
-	$(CXX) $(EAFLAGS) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 test: test.o
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) -lpthread
+	$(CXX) -g -O0 -o $@ $^ -lpthread
 
 test.o: test.cpp
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) -g -O0 -c -o $@ $<
 
 .PHONY: clean debug 
 
