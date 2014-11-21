@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cerrno>
 #include <condition_variable>
@@ -51,13 +52,6 @@ constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
 }
 
 
-volatile bool is_timer_done = false;
-volatile bool is_done = false;
-mutex profile_mutex;
-condition_variable profile_cv;
-vector<bool> should_profile;
-
-
 struct stats_t {
   long long time;
   long long counters[kNumCounters];
@@ -71,17 +65,29 @@ struct stats_t {
 };
 
 
-inline stats_t operator+(stats_t lhs, const stats_t& rhs) {
-  return lhs += rhs;
-}
-
-
 struct event_info_t{
   int component;
   int set;
   vector<int> codes;
   vector<string> names;
 };
+
+
+volatile bool is_timer_done = false;
+volatile bool is_done = false;
+mutex profile_mutex;
+condition_variable profile_cv;
+vector<bool> should_profile;
+atomic<int> num_stats_collected;
+bool stats_done = false;
+mutex stats_mutex;
+condition_variable stats_cv;
+vector<stats_t> profile_counters;
+
+
+inline stats_t operator+(stats_t lhs, const stats_t& rhs) {
+  return lhs += rhs;
+}
 
 
 void overflow(int signum, siginfo_t* info, void* context){
@@ -115,6 +121,7 @@ stats_t read_rapl(const vector<event_info_t>& eventsets){
 
 
 vector<event_info_t> init_papi_counters() {
+  // TODO make sure our domain is set to this core
   vector<event_info_t> eventsets;
   int retval;
   for (auto& event_name : kCounterNames) {
@@ -163,7 +170,7 @@ vector<event_info_t> init_papi_counters() {
 }
 
 
-void profile_core(int id) {
+void profile_core(int id, int nthreads) {
   /* Set affinity */
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
@@ -182,11 +189,20 @@ void profile_core(int id) {
     }
     // do profiling
     print("TID %d profiling\n", id);
+    auto rapl = read_rapl(counters);
     // update output (global) data
     // go back to sleep
     {
       lock_guard<mutex> lock(profile_mutex);
+      profile_counters[id] = rapl;
       should_profile[id] = false;
+    }
+    ++num_stats_collected;
+    if(num_stats_collected == nthreads){
+      unique_lock<mutex> locker(stats_mutex);
+      num_stats_collected = 0;
+      stats_done = true;
+      stats_cv.notify_all();
     }
   }
   print("TID %d DONE\n", id);
@@ -198,13 +214,15 @@ void do_profiling(int profilee_pid, char* profilee_name) {
    * Structures holding profiling data
    */
   vector<int> children_pids;
-  map<void*, stats_t> stat_map;
+  vector<map<void*, stats_t>> thread_stats;
   vector<thread> threads;
   auto nthreads = thread::hardware_concurrency();
+  thread_stats.resize(nthreads);
   threads.reserve(nthreads);
   {
     lock_guard<mutex> lock(profile_mutex);
     should_profile.resize(nthreads, false);
+    profile_counters.resize(nthreads);
   }
 
   /*
@@ -242,8 +260,9 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   }
   for(unsigned int i = 0; i < nthreads; ++i){
     print("eaudit Starting thread %d\n", i);
-    threads.emplace_back(profile_core, i);
+    threads.emplace_back(profile_core, i, nthreads);
   }
+  auto counters = init_papi_counters();
 
   /*
    * Setup tracing of all profilee threads
@@ -274,7 +293,6 @@ void do_profiling(int profilee_pid, char* profilee_name) {
    */
   print("Start profiling.\n");
   ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr);
-  struct user_regs_struct regs;
   for (;;) {
     int status;
     //auto wait_res = wait(&status);
@@ -305,19 +323,23 @@ void do_profiling(int profilee_pid, char* profilee_name) {
           print("EAUDIT notifying\n");
           profile_cv.notify_all();
         }
-        // wait on output from profiling threads and accumulate
-
-
-        /*
-
+        {
+          unique_lock<mutex> locker(stats_mutex);
+          print("EAUDIT waiting on results\n");
+          stats_cv.wait(locker, []{ return stats_done; });
+          stats_done = false;
+        }
+        // collect stats from threads
+        print("EAUDIT collating stats\n");
         // read all the children registers
         for(const auto& child : children_pids){
+          struct user_regs_struct regs;
           ptrace(PTRACE_GETREGS, child, nullptr, &regs);
           void* rip = (void*)regs.rip;
-          auto rapl = read_rapl(eventsets);
-          stat_map[rip] += rapl;
+          // TODO
+          //thread_stats[child_core_ids[child]][rip] += rapl;
+          //stat_map[rip] += rapl;
         }
-        */
         // resume all children
         for(const auto& child : children_pids){
           ptrace(PTRACE_CONT, child, nullptr, nullptr);
@@ -385,69 +407,75 @@ void do_profiling(int profilee_pid, char* profilee_name) {
    * Done profiling. Convert data to output file.
    */
   print("Finalize profile.\n");
-  vector<pair<string, stats_t> > stats;
-  // Convert stack IDs into function names.
-  for (auto& func : stat_map) {
-    stringstream cmd;
-    cmd << "addr2line -f -s -C -e " << profilee_name << " " << func.first;
-    auto pipe = popen(cmd.str().c_str(), "r");  // call command and read output
-    if (!pipe) {
-      cerr << "Unable to open pipe to call addr2line.\n";
-      return;
-    }
-    char buffer[128];
-    string result = "";
-    while (!feof(pipe)) {
-      if (fgets(buffer, 128, pipe) != nullptr) {
-        result += buffer;
+  vector<vector<pair<string, stats_t>>> thread_profiles;
+  for(unsigned int i = 0; i < nthreads; ++i){
+    vector<pair<string, stats_t> > stats;
+    // Convert stack IDs into function names.
+    for (auto& func : thread_stats[i]) {
+      stringstream cmd;
+      cmd << "addr2line -f -s -C -e " << profilee_name << " " << func.first;
+      auto pipe = popen(cmd.str().c_str(), "r");  // call command and read output
+      if (!pipe) {
+        cerr << "Unable to open pipe to call addr2line.\n";
+        return;
+      }
+      char buffer[128];
+      string result = "";
+      while (!feof(pipe)) {
+        if (fgets(buffer, 128, pipe) != nullptr) {
+          result += buffer;
+        }
+      }
+      pclose(pipe);
+      stringstream resultstream{result};
+      string line;
+      getline(resultstream, line);
+      print("Reporting function %s\n", line.c_str());
+
+      auto stat = find_if(
+          begin(stats), end(stats),
+          [&](const pair<string, stats_t>& obj) { return obj.first == line; });
+      if (stat == end(stats)) {
+        stats.emplace_back(line, func.second);
+      } else {
+        stat->second += func.second;
       }
     }
-    pclose(pipe);
-    stringstream resultstream{result};
-    string line;
-    getline(resultstream, line);
-    print("Reporting function %s\n", line.c_str());
 
-    auto stat = find_if(
-        begin(stats), end(stats),
-        [&](const pair<string, stats_t>& obj) { return obj.first == line; });
-    if (stat == end(stats)) {
-      stats.emplace_back(line, func.second);
-    } else {
-      stat->second += func.second;
-    }
+    stable_sort(stats.begin(), stats.end(), [](const pair<string, stats_t>& a,
+                                               const pair<string, stats_t>& b) {
+      return a.second.time > b.second.time;
+    });
+    thread_profiles.push_back(stats);
   }
-
-  stable_sort(stats.begin(), stats.end(), [](const pair<string, stats_t>& a,
-                                             const pair<string, stats_t>& b) {
-    return a.second.time > b.second.time;
-  });
 
   /*
    * Write profile to file
    */
-  /*
   ofstream myfile;
   myfile.open(kOutFileName);
-  myfile << "Func Name"
-         << "\t"
-         << "Time(s)";
-  for(const auto& eventset : eventsets){
-    for(const auto& name : eventset.names){
-      myfile << "\t" << name;
+  for(unsigned int i = 0; i < nthreads; ++i){
+    myfile << "===THREAD " << i << "\n";
+    myfile << "Func Name"
+           << "\t"
+           << "Time(s)";
+    for(const auto& eventset : counters){
+      for(const auto& name : eventset.names){
+        myfile << "\t" << name;
+      }
     }
-  }
-  myfile << endl;
+    myfile << endl;
 
-  for (auto& func : stats) {
-    myfile << func.first << "\t" << func.second.time* kNanoToBase;
-    for (int i = 0; i < kNumCounters; ++i) {
-      myfile << "\t" << func.second.counters[i];
+    for (auto& func : thread_profiles[i]) {
+      myfile << func.first << "\t" << func.second.time* kNanoToBase;
+      for (int i = 0; i < kNumCounters; ++i) {
+        myfile << "\t" << func.second.counters[i];
+      }
+      myfile << endl;
     }
     myfile << endl;
   }
   myfile.close();
-  */
 }
 
 int main(int argc, char* argv[]) {
