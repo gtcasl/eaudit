@@ -1,10 +1,10 @@
 CXXFLAGS=-g -std=gnu++0x -Wall -Wextra -pthread
 LDFLAGS=-lpapi -lpthread
 
-ifeq ($(DEBUG),y)
-	CXXFLAGS += -O0 -DDEBUG
-else
+ifeq ($(RELEASE),y)
 	CXXFLAGS += -O3
+else
+	CXXFLAGS += -O0 -DDEBUG
 endif
 
 all: eaudit test
@@ -27,6 +27,6 @@ test.o: test.cpp
 clean:
 	-rm *.o eaudit test
 
-debug:
-	$(MAKE) DEBUG=y
+release:
+	$(MAKE) RELEASE=y
 
