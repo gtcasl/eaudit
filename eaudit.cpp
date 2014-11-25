@@ -35,6 +35,11 @@
 using namespace std;
 
 namespace{
+
+/*
+ * Constants
+ */
+const unsigned kProcStatIdx = 39;
 const unsigned kSleepSecs = 1;
 const unsigned kSleepUsecs = 0;
 const double kNanoToBase = 1e-9;
@@ -49,7 +54,6 @@ const char* kCounterNames[] = {
   (char*) "PAPI_TOT_CYC",
 };
 constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
-}
 
 
 struct stats_t {
@@ -73,6 +77,9 @@ struct event_info_t{
 };
 
 
+/*
+ * Global variables
+ */
 volatile bool is_timer_done = false;
 volatile bool is_done = false;
 mutex profile_mutex;
@@ -83,6 +90,8 @@ bool stats_done = false;
 mutex stats_mutex;
 condition_variable stats_cv;
 vector<stats_t> profile_counters;
+mutex io_mutex;
+} // end unnamed namespace
 
 
 inline stats_t operator+(stats_t lhs, const stats_t& rhs) {
@@ -105,13 +114,15 @@ stats_t read_rapl(const vector<event_info_t>& eventsets){
   for(const auto& eventset : eventsets){
     int retval=PAPI_stop(eventset.set, res.counters + cntr_offset);
     if(retval != PAPI_OK){
+      cerr << "Error: bad PAPI stop: ";
       PAPI_perror(NULL);
-      exit(-1);
+      terminate();
     }
     retval = PAPI_start(eventset.set);
     if(retval != PAPI_OK){
+      cerr << "Error: bad PAPI stop: ";
       PAPI_perror(NULL);
-      exit(-1);
+      terminate();
     }
     cntr_offset += eventset.codes.size();
   }
@@ -121,15 +132,27 @@ stats_t read_rapl(const vector<event_info_t>& eventsets){
 
 
 vector<event_info_t> init_papi_counters() {
-  // TODO make sure our domain is set to this core
   vector<event_info_t> eventsets;
   int retval;
+  retval = PAPI_register_thread();
+  if(retval != PAPI_OK){
+    {
+      lock_guard<mutex> lock(io_mutex);
+      cerr << "Error: bad register thread: ";
+      PAPI_perror(NULL);
+    }
+    terminate();
+  }
   for (auto& event_name : kCounterNames) {
     int event_code;
     retval = PAPI_event_name_to_code((char*)event_name, &event_code);
     if (retval != PAPI_OK) {
-      PAPI_perror(NULL);
-      exit(-1);
+      {
+        lock_guard<mutex> lock(io_mutex);
+        cerr << "Error: bad PAPI event name to code: ";
+        PAPI_perror(NULL);
+      }
+      terminate();
     }
     int component = PAPI_get_event_component(event_code);
     auto elem = find_if(
@@ -151,19 +174,52 @@ vector<event_info_t> init_papi_counters() {
     int eventset = PAPI_NULL;
     PAPI_create_eventset(&eventset);
     if (retval != PAPI_OK) {
-      PAPI_perror(NULL);
-      exit(-1);
+      {
+        lock_guard<mutex> lock(io_mutex);
+        cerr << "Error: bad PAPI create eventset: ";
+        PAPI_perror(NULL);
+      }
+      terminate();
     }
     PAPI_add_events(eventset, &event.codes[0], event.codes.size());
+    {
+      lock_guard<mutex> lock(io_mutex);
+      cout << "Created eventset " << eventset << endl;
+    }
     if (retval != PAPI_OK) {
-      PAPI_perror(NULL);
-      exit(-1);
+      {
+        lock_guard<mutex> lock(io_mutex);
+        cerr << "Error: bad PAPI add eventset: ";
+        PAPI_perror(NULL);
+      }
+      terminate();
+    }
+    {
+      lock_guard<mutex> lock(io_mutex);
+      cerr << "Trying granularity\n";
+    }
+    PAPI_option_t options;
+    options.granularity.granularity = PAPI_GRN_SYS;
+    options.granularity.eventset = eventset;
+    options.granularity.def_cidx = event.component;
+    retval = PAPI_set_opt(PAPI_GRANUL, &options);
+    if(retval != PAPI_OK) {
+      {
+        lock_guard<mutex> lock(io_mutex);
+        cerr << "Error: bad PAPI set cmp granularity: ";
+        PAPI_perror(NULL);
+      }
+      terminate();
     }
     event.set = eventset;
     retval = PAPI_start(eventset);
     if (retval != PAPI_OK) {
-      PAPI_perror(NULL);
-      exit(-1);
+      {
+        lock_guard<mutex> lock(io_mutex);
+        cerr << "Error: bad PAPI start eventset: ";
+        PAPI_perror(NULL);
+      }
+      terminate();
     }
   }
   return eventsets;
@@ -175,7 +231,13 @@ void profile_core(int id, int nthreads) {
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
   CPU_SET(id, &cpuset);
-  pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+  if(pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) != 0){
+    {
+      lock_guard<mutex> lock(io_mutex);
+      cerr << "Unable to set affinity for thread id: " << id << endl;
+    }
+    terminate();
+  }
 
   /* Initialize PAPI counters for this core */
   auto counters = init_papi_counters();
@@ -217,6 +279,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   vector<map<void*, stats_t>> thread_stats;
   vector<thread> threads;
   auto nthreads = thread::hardware_concurrency();
+  //auto nthreads = 1u;
   thread_stats.resize(nthreads);
   threads.reserve(nthreads);
   {
@@ -268,8 +331,6 @@ void do_profiling(int profilee_pid, char* profilee_name) {
    * Setup tracing of all profilee threads
    */
   children_pids.push_back(profilee_pid);
-  ptrace(PTRACE_SETOPTIONS, profilee_pid, nullptr,
-         PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
 
   /*
    * Set up timer
@@ -309,8 +370,24 @@ void do_profiling(int profilee_pid, char* profilee_name) {
           kill(child, SIGSTOP);
         }
 
-        // TODO
         // find last executing core ID for each child
+        map<int, int> children_cores;
+        for(const auto& child : children_pids){
+          stringstream proc_fname;
+          proc_fname << "/proc/" << child << "/stat";
+          ifstream procfile(proc_fname.str());
+          if(!procfile.is_open()){
+            cerr << "Error: couldn't open proc file!\n";
+            exit(-1);
+          }
+          string line;
+          // ignore the first kProcStatIdx lines
+          for(unsigned int i = 0; i < kProcStatIdx; ++i){
+            getline(procfile, line, ' ');
+          }
+          children_cores[child] = stoi(line);
+        }
+        
         // send signal requesting updates from each profiling thread associated with a child core id
         {
           lock_guard<mutex> lock(profile_mutex);
@@ -336,9 +413,8 @@ void do_profiling(int profilee_pid, char* profilee_name) {
           struct user_regs_struct regs;
           ptrace(PTRACE_GETREGS, child, nullptr, &regs);
           void* rip = (void*)regs.rip;
-          // TODO
-          //thread_stats[child_core_ids[child]][rip] += rapl;
-          //stat_map[rip] += rapl;
+          auto child_core = children_cores[child];
+          thread_stats[child_core][rip] += profile_counters[child_core];
         }
         // resume all children
         for(const auto& child : children_pids){
@@ -486,16 +562,14 @@ int main(int argc, char* argv[]) {
   auto profilee = fork();
   if(profilee > 0){ /* parent */
     // Let's do this.
-    int status;
-    wait(&status);
-    if(WIFEXITED(status)){
-      cerr << "Child exited too fast.\n";
-      return 0;
-    }
+    ptrace(PTRACE_SETOPTIONS, profilee, nullptr,
+           PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
     do_profiling(profilee, argv[1]);
   } else if(profilee == 0){ /* profilee */
     // prepare for tracing
     ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
+    raise(SIGSTOP);
+    cout << "After stop\n";
     // start up client program
     execve(argv[1], &argv[1], nullptr);
     cerr << "Error: profilee couldn't start its program!\n";
