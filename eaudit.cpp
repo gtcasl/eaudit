@@ -6,6 +6,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -182,10 +183,6 @@ vector<event_info_t> init_papi_counters() {
       terminate();
     }
     PAPI_add_events(eventset, &event.codes[0], event.codes.size());
-    {
-      lock_guard<mutex> lock(io_mutex);
-      cout << "Created eventset " << eventset << endl;
-    }
     if (retval != PAPI_OK) {
       {
         lock_guard<mutex> lock(io_mutex);
@@ -193,10 +190,6 @@ vector<event_info_t> init_papi_counters() {
         PAPI_perror(NULL);
       }
       terminate();
-    }
-    {
-      lock_guard<mutex> lock(io_mutex);
-      cerr << "Trying granularity\n";
     }
     PAPI_option_t options;
     options.granularity.granularity = PAPI_GRN_SYS;
@@ -294,23 +287,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   print("Init PAPI\n");
   int retval;
   if ((retval = PAPI_library_init(PAPI_VER_CURRENT)) != PAPI_VER_CURRENT) {
-    cerr << "Unable to init PAPI library: ";
-    switch (retval) {
-      case PAPI_EINVAL:
-        cerr << "einval\n";
-        break;
-      case PAPI_ENOMEM:
-        cerr << "enomem\n";
-        break;
-      case PAPI_ESBSTR:
-        cerr << "esbstr\n";
-        break;
-      case PAPI_ESYS:
-        cerr << "esys\n";
-        break;
-      default:
-        cerr << "\n";
-    }
+    cerr << "Unable to init PAPI library - " << PAPI_strerror(retval) << endl;
     exit(-1);
   }
 
@@ -352,8 +329,14 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   /*
    * Let the profilee run, periodically interrupting to collect profile data.
    */
+  ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr); // Allow child to fork
+  int tempstatus;
+  wait(&tempstatus); // wait for child to begin executing
   print("Start profiling.\n");
-  ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr);
+  /* Reassert that we want the profilee to stop when it clones */
+  ptrace(PTRACE_SETOPTIONS, profilee_pid, nullptr,
+         PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
+  ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr); // Allow child to run!
   for (;;) {
     int status;
     //auto wait_res = wait(&status);
@@ -427,7 +410,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
         setitimer(ITIMER_REAL, &work_time, nullptr);
         continue; // this isn't really necessary
       } else {
-        cerr << "Error: unexpected return from wait.\n";
+        cerr << "Error: unexpected return from wait - " << strerror(errno) << "\n";
         exit(-1);
       }
     } else { // good wait, add new thread
@@ -569,7 +552,6 @@ int main(int argc, char* argv[]) {
     // prepare for tracing
     ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
     raise(SIGSTOP);
-    cout << "After stop\n";
     // start up client program
     execve(argv[1], &argv[1], nullptr);
     cerr << "Error: profilee couldn't start its program!\n";
