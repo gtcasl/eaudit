@@ -41,8 +41,8 @@ namespace{
  * Constants
  */
 const unsigned kProcStatIdx = 39;
-const unsigned kSleepSecs = 1;
-const unsigned kSleepUsecs = 0;
+const unsigned kSleepSecs = 0;
+const unsigned kSleepUsecs = 1000;
 const double kNanoToBase = 1e-9;
 const long long kBaseToNano = 1000000000;
 const long long kMicroToNano = 1000;
