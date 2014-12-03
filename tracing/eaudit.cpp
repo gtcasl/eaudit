@@ -36,13 +36,10 @@ namespace{
  * Constants
  */
 const unsigned kProcStatIdx = 39;
-const unsigned kSleepSecs = 0;
-const unsigned kSleepUsecs = 1000;
+const double kDefaultSamplePeriodMSecs = 1.0;
+const char* kDefaultOutfile = "eaudit.tsv";
 const double kNanoToBase = 1e-9;
-const long long kBaseToNano = 1000000000;
-const long long kMicroToNano = 1000;
 const long long kCounterMax = numeric_limits<unsigned int>::max();
-const char* kOutFileName = "eaudit.tsv";
 const char* kCounterNames[] = {
   //(char*) "rapl:::PACKAGE_ENERGY:PACKAGE0",
   //(char*) "rapl:::PP0_ENERGY:PACKAGE0",
@@ -89,7 +86,7 @@ void overflow(int signum, siginfo_t* info, void* context){
 }
 
 
-stats_t read_rapl(const vector<event_info_t>& eventsets){
+stats_t read_rapl(const vector<event_info_t>& eventsets, double period_secs){
   stats_t res;
   int cntr_offset = 0;
   for(const auto& eventset : eventsets){
@@ -107,7 +104,7 @@ stats_t read_rapl(const vector<event_info_t>& eventsets){
     }
     cntr_offset += eventset.codes.size();
   }
-  res.time = kSleepSecs * kBaseToNano + kSleepUsecs * kMicroToNano;
+  res.time = period_secs;
   return res;
 }
 
@@ -174,7 +171,8 @@ vector<event_info_t> init_papi_counters(int cpu_num) {
 }
 
 
-void do_profiling(int profilee_pid, char* profilee_name) {
+void do_profiling(int profilee_pid, const char* profilee_name, const double period_ms,
+                  const char* outfilename) {
   /*
    * Structures holding profiling data
    */
@@ -220,10 +218,15 @@ void do_profiling(int profilee_pid, char* profilee_name) {
     exit(-1);
   }
   struct itimerval work_time;
-  work_time.it_value.tv_sec = kSleepSecs;
-  work_time.it_value.tv_usec = kSleepUsecs;
-  work_time.it_interval.tv_sec = kSleepSecs;
-  work_time.it_interval.tv_usec = kSleepUsecs;
+  auto period_secs = period_ms / 1000 /* ms per sec */;
+  time_t sleep_secs = floor(period_secs);
+  suseconds_t sleep_usecs = (period_ms - sleep_secs) * 1000 /* us per ms */;
+  cout << "sleepsecs: " << sleep_secs << endl
+       << "usleepsec: " << sleep_usecs << endl;
+  work_time.it_value.tv_sec = sleep_secs;
+  work_time.it_value.tv_usec = sleep_usecs;
+  work_time.it_interval.tv_sec = sleep_secs;
+  work_time.it_interval.tv_usec = sleep_usecs;
   setitimer(ITIMER_REAL, &work_time, nullptr);
 
   /*
@@ -274,7 +277,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
         // read all rapl counters
         vector<stats_t> stats;
         for(unsigned int i = 0; i < nthreads; ++i){
-          stats.emplace_back(read_rapl(thread_counters[i]));
+          stats.emplace_back(read_rapl(thread_counters[i], period_secs));
         }
         // read all the children registers
         for(const auto& child : children_pids){
@@ -290,8 +293,8 @@ void do_profiling(int profilee_pid, char* profilee_name) {
         }
         is_timer_done = false;
         // resume timer
-        work_time.it_value.tv_sec = kSleepSecs;
-        work_time.it_value.tv_usec = kSleepUsecs;
+        work_time.it_value.tv_sec = sleep_secs;
+        work_time.it_value.tv_usec = sleep_usecs;
         setitimer(ITIMER_REAL, &work_time, nullptr);
       } else {
         cerr << "Error: unexpected return from wait - " << strerror(errno) << "\n";
@@ -382,7 +385,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
    * Write profile to file
    */
   ofstream myfile;
-  myfile.open(kOutFileName);
+  myfile.open(outfilename);
   for(unsigned int i = 0; i < nthreads; ++i){
     myfile << "===THREAD " << i << "\n";
     myfile << "Func Name"
@@ -408,7 +411,45 @@ void do_profiling(int profilee_pid, char* profilee_name) {
 }
 
 int main(int argc, char* argv[]) {
-  (void)argc;
+  /*
+   * Check params
+   */
+  auto usage = 
+    "Usage:\n"
+    " eaudit [options] executable\n"
+    "\n"
+    "Options:\n"
+    " -h                  Show this help\n"
+    " -s <milliseconds>   Sample period in milliseconds, default 1\n"
+    " -o <filename>       File to write profile, default eaudit.tsv\n"
+    "\n";
+
+  auto period = kDefaultSamplePeriodMSecs;
+  auto outfile = kDefaultOutfile;
+  int param;
+  while((param = getopt(argc, argv, "hs:o:")) != -1){
+    switch(param){
+      case 's':
+        period = stod(optarg);
+        break;
+      case 'o':
+        outfile = optarg;
+        break;
+      case 'h':
+      case '?':
+        cout << usage;
+        exit(0);
+        break;
+      default:
+        cerr << "Error: bad getopt parse of parameter.\n";
+        exit(-1);
+        break;
+    }
+  }
+  cout << "period: " << period << endl
+       << "outfile: " << outfile << endl
+       << "optind: " << optind << " : " << argv[optind] << endl;
+
   /*
    * Fork a process to run the profiled application
    */
@@ -417,13 +458,13 @@ int main(int argc, char* argv[]) {
     // Let's do this.
     ptrace(PTRACE_SETOPTIONS, profilee, nullptr,
            PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
-    do_profiling(profilee, argv[1]);
+    do_profiling(profilee, argv[optind], period, outfile);
   } else if(profilee == 0){ /* profilee */
     // prepare for tracing
     ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
     raise(SIGSTOP);
     // start up client program
-    execve(argv[1], &argv[1], nullptr);
+    execve(argv[optind], &argv[optind], nullptr);
     cerr << "Error: profilee couldn't start its program!\n";
     exit(-1);
   } else { /* error */
