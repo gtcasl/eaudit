@@ -1,8 +1,5 @@
 #include <algorithm>
-#include <atomic>
-#include <cassert>
 #include <cerrno>
-#include <condition_variable>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -12,7 +9,6 @@
 #include <iterator>
 #include <limits>
 #include <map>
-#include <mutex>
 #include <pthread.h>
 #include <sstream>
 #include <string>
@@ -22,7 +18,6 @@
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
-#include <utility>
 #include <vector>
 
 #include "papi.h"
@@ -82,22 +77,7 @@ struct event_info_t{
  * Global variables
  */
 volatile bool is_timer_done = false;
-volatile bool is_done = false;
-mutex profile_mutex;
-condition_variable profile_cv;
-vector<bool> should_profile;
-atomic<int> num_stats_collected;
-bool stats_done = false;
-mutex stats_mutex;
-condition_variable stats_cv;
-vector<stats_t> profile_counters;
-mutex io_mutex;
 } // end unnamed namespace
-
-
-inline stats_t operator+(stats_t lhs, const stats_t& rhs) {
-  return lhs += rhs;
-}
 
 
 void overflow(int signum, siginfo_t* info, void* context){
@@ -132,28 +112,16 @@ stats_t read_rapl(const vector<event_info_t>& eventsets){
 }
 
 
-vector<event_info_t> init_papi_counters() {
+vector<event_info_t> init_papi_counters(int cpu_num) {
   vector<event_info_t> eventsets;
   int retval;
-  retval = PAPI_register_thread();
-  if(retval != PAPI_OK){
-    {
-      lock_guard<mutex> lock(io_mutex);
-      cerr << "Error: bad register thread: ";
-      PAPI_perror(NULL);
-    }
-    terminate();
-  }
   for (auto& event_name : kCounterNames) {
     int event_code;
     retval = PAPI_event_name_to_code((char*)event_name, &event_code);
     if (retval != PAPI_OK) {
-      {
-        lock_guard<mutex> lock(io_mutex);
-        cerr << "Error: bad PAPI event name to code: ";
-        PAPI_perror(NULL);
-      }
-      terminate();
+      cerr << "Error: bad PAPI event name to code: ";
+      PAPI_perror(NULL);
+      exit(-1);
     }
     int component = PAPI_get_event_component(event_code);
     auto elem = find_if(
@@ -175,92 +143,34 @@ vector<event_info_t> init_papi_counters() {
     int eventset = PAPI_NULL;
     PAPI_create_eventset(&eventset);
     if (retval != PAPI_OK) {
-      {
-        lock_guard<mutex> lock(io_mutex);
-        cerr << "Error: bad PAPI create eventset: ";
-        PAPI_perror(NULL);
-      }
-      terminate();
+      cerr << "Error: bad PAPI create eventset: ";
+      PAPI_perror(NULL);
+      exit(-1);
     }
     PAPI_add_events(eventset, &event.codes[0], event.codes.size());
     if (retval != PAPI_OK) {
-      {
-        lock_guard<mutex> lock(io_mutex);
-        cerr << "Error: bad PAPI add eventset: ";
-        PAPI_perror(NULL);
-      }
-      terminate();
+      cerr << "Error: bad PAPI add eventset: ";
+      PAPI_perror(NULL);
+      exit(-1);
     }
     PAPI_option_t options;
-    options.granularity.granularity = PAPI_GRN_SYS;
-    options.granularity.eventset = eventset;
-    options.granularity.def_cidx = event.component;
-    retval = PAPI_set_opt(PAPI_GRANUL, &options);
+    options.cpu.eventset = eventset;
+    options.cpu.cpu_num = cpu_num;
+    retval = PAPI_set_opt(PAPI_CPU_ATTACH, &options);
     if(retval != PAPI_OK) {
-      {
-        lock_guard<mutex> lock(io_mutex);
-        cerr << "Error: bad PAPI set cmp granularity: ";
-        PAPI_perror(NULL);
-      }
-      terminate();
+      cerr << "Error: unable to CPU_ATTACH core " << cpu_num << endl;
+      exit(-1);
     }
+
     event.set = eventset;
     retval = PAPI_start(eventset);
     if (retval != PAPI_OK) {
-      {
-        lock_guard<mutex> lock(io_mutex);
-        cerr << "Error: bad PAPI start eventset: ";
-        PAPI_perror(NULL);
-      }
-      terminate();
+      cerr << "Error: bad PAPI start eventset: ";
+      PAPI_perror(NULL);
+      exit(-1);
     }
   }
   return eventsets;
-}
-
-
-void profile_core(int id, int nthreads) {
-  /* Set affinity */
-  cpu_set_t cpuset;
-  CPU_ZERO(&cpuset);
-  CPU_SET(id, &cpuset);
-  if(pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) != 0){
-    {
-      lock_guard<mutex> lock(io_mutex);
-      cerr << "Unable to set affinity for thread id: " << id << endl;
-    }
-    terminate();
-  }
-
-  /* Initialize PAPI counters for this core */
-  auto counters = init_papi_counters();
-
-  while(!is_done){
-    // wait on condition variable
-    {
-      unique_lock<mutex> locker(profile_mutex);
-      print("TID %d waiting\n", id);
-      profile_cv.wait(locker, [&]{ return should_profile[id]; });
-    }
-    // do profiling
-    print("TID %d profiling\n", id);
-    auto rapl = read_rapl(counters);
-    // update output (global) data
-    // go back to sleep
-    {
-      lock_guard<mutex> lock(profile_mutex);
-      profile_counters[id] = rapl;
-      should_profile[id] = false;
-    }
-    ++num_stats_collected;
-    if(num_stats_collected == nthreads){
-      unique_lock<mutex> locker(stats_mutex);
-      num_stats_collected = 0;
-      stats_done = true;
-      stats_cv.notify_all();
-    }
-  }
-  print("TID %d DONE\n", id);
 }
 
 
@@ -270,16 +180,11 @@ void do_profiling(int profilee_pid, char* profilee_name) {
    */
   vector<int> children_pids;
   vector<map<void*, stats_t>> thread_stats;
-  vector<thread> threads;
+  vector<vector<event_info_t>> thread_counters;
   auto nthreads = thread::hardware_concurrency();
   //auto nthreads = 1u;
   thread_stats.resize(nthreads);
-  threads.reserve(nthreads);
-  {
-    lock_guard<mutex> lock(profile_mutex);
-    should_profile.resize(nthreads, false);
-    profile_counters.resize(nthreads);
-  }
+  thread_counters.reserve(nthreads);
 
   /*
    * Initialize PAPI
@@ -292,17 +197,12 @@ void do_profiling(int profilee_pid, char* profilee_name) {
   }
 
   /*
-   * Initialize PAPI measurement threads
+   * Initialize PAPI measurement of all cores
    */
-  if(PAPI_thread_init(pthread_self) != PAPI_OK){
-    cerr << "Unable to init PAPI threads\n";
-    exit(-1);
-  }
   for(unsigned int i = 0; i < nthreads; ++i){
-    print("eaudit Starting thread %d\n", i);
-    threads.emplace_back(profile_core, i, nthreads);
+    print("eaudit Starting cpu core %d\n", i);
+    thread_counters.emplace_back(init_papi_counters(i));
   }
-  auto counters = init_papi_counters();
 
   /*
    * Setup tracing of all profilee threads
@@ -330,16 +230,14 @@ void do_profiling(int profilee_pid, char* profilee_name) {
    * Let the profilee run, periodically interrupting to collect profile data.
    */
   ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr); // Allow child to fork
-  int tempstatus;
-  wait(&tempstatus); // wait for child to begin executing
+  int status;
+  wait(&status); // wait for child to begin executing
   print("Start profiling.\n");
   /* Reassert that we want the profilee to stop when it clones */
   ptrace(PTRACE_SETOPTIONS, profilee_pid, nullptr,
          PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
   ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr); // Allow child to run!
   for (;;) {
-    int status;
-    //auto wait_res = wait(&status);
     auto wait_res = waitpid(-1, &status, __WALL);
     if(wait_res == -1){ // bad wait!
       if(errno == EINTR && is_timer_done){ // timer expired, do profiling
@@ -371,33 +269,20 @@ void do_profiling(int profilee_pid, char* profilee_name) {
           children_cores[child] = stoi(line);
         }
         
-        // send signal requesting updates from each profiling thread associated with a child core id
-        {
-          lock_guard<mutex> lock(profile_mutex);
-          for(unsigned int i = 0; i < nthreads; ++i){
-            should_profile[i] = true;
-          }
-        }
-        {
-          unique_lock<mutex> locker(profile_mutex);
-          print("EAUDIT notifying\n");
-          profile_cv.notify_all();
-        }
-        {
-          unique_lock<mutex> locker(stats_mutex);
-          print("EAUDIT waiting on results\n");
-          stats_cv.wait(locker, []{ return stats_done; });
-          stats_done = false;
-        }
         // collect stats from threads
         print("EAUDIT collating stats\n");
+        // read all rapl counters
+        vector<stats_t> stats;
+        for(unsigned int i = 0; i < nthreads; ++i){
+          stats.emplace_back(read_rapl(thread_counters[i]));
+        }
         // read all the children registers
         for(const auto& child : children_pids){
           struct user_regs_struct regs;
           ptrace(PTRACE_GETREGS, child, nullptr, &regs);
           void* rip = (void*)regs.rip;
           auto child_core = children_cores[child];
-          thread_stats[child_core][rip] += profile_counters[child_core];
+          thread_stats[child_core][rip] += stats[child_core];
         }
         // resume all children
         for(const auto& child : children_pids){
@@ -408,7 +293,6 @@ void do_profiling(int profilee_pid, char* profilee_name) {
         work_time.it_value.tv_sec = kSleepSecs;
         work_time.it_value.tv_usec = kSleepUsecs;
         setitimer(ITIMER_REAL, &work_time, nullptr);
-        continue; // this isn't really necessary
       } else {
         cerr << "Error: unexpected return from wait - " << strerror(errno) << "\n";
         exit(-1);
@@ -438,20 +322,6 @@ void do_profiling(int profilee_pid, char* profilee_name) {
           }
           children_pids.erase(pid_iter);
           if(children_pids.size() == 0){ // All done, not tracking any more threads
-            is_done = true;
-            {
-              lock_guard<mutex> lock(profile_mutex);
-              for(unsigned int i = 0; i < nthreads; ++i){
-                should_profile[i] = true;
-              }
-            }
-            {
-              unique_lock<mutex> locker(profile_mutex);
-              profile_cv.notify_all();
-            }
-            for(auto& thread : threads){
-              thread.join();
-            }
             break;
           }
           print("%lu children left\n", children_pids.size());
@@ -518,7 +388,7 @@ void do_profiling(int profilee_pid, char* profilee_name) {
     myfile << "Func Name"
            << "\t"
            << "Time(s)";
-    for(const auto& eventset : counters){
+    for(const auto& eventset : thread_counters[i]){
       for(const auto& name : eventset.names){
         myfile << "\t" << name;
       }
