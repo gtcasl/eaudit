@@ -1,5 +1,5 @@
 CXXFLAGS=-g -std=gnu++0x -Wall -Wextra -pthread
-LDFLAGS=/home/eric/tmp/papi-5.3.0/src/install/lib/libpapi.a -lpthread
+LDFLAGS=-lpapi -lpthread
 
 ifeq ($(RELEASE),y)
 	CXXFLAGS += -O3

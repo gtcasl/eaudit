@@ -221,8 +221,6 @@ void do_profiling(int profilee_pid, const char* profilee_name, const double peri
   auto period_secs = period_ms / 1000 /* ms per sec */;
   time_t sleep_secs = floor(period_secs);
   suseconds_t sleep_usecs = (period_ms - sleep_secs) * 1000 /* us per ms */;
-  cout << "sleepsecs: " << sleep_secs << endl
-       << "usleepsec: " << sleep_usecs << endl;
   work_time.it_value.tv_sec = sleep_secs;
   work_time.it_value.tv_usec = sleep_usecs;
   work_time.it_interval.tv_sec = sleep_secs;
@@ -446,9 +444,6 @@ int main(int argc, char* argv[]) {
         break;
     }
   }
-  cout << "period: " << period << endl
-       << "outfile: " << outfile << endl
-       << "optind: " << optind << " : " << argv[optind] << endl;
 
   /*
    * Fork a process to run the profiled application
