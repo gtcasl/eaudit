@@ -36,29 +36,32 @@ namespace{
  * Constants
  */
 const unsigned kProcStatIdx = 39;
-const double kDefaultSamplePeriodMSecs = 1.0;
+const long kDefaultSamplePeriodUsecs = 1000;
+const long kMicroToBase = 1e6;
 const char* kDefaultOutfile = "eaudit.tsv";
-const double kNanoToBase = 1e-9;
-const long long kCounterMax = numeric_limits<unsigned int>::max();
-const char* kCounterNames[] = {
-  //(char*) "rapl:::PACKAGE_ENERGY:PACKAGE0",
-  //(char*) "rapl:::PP0_ENERGY:PACKAGE0",
-  (char*) "PAPI_TOT_INS",
-  (char*) "PAPI_TOT_CYC",
+const vector<string> kDefaultPerCoreEventnames = {
+  "PAPI_TOT_INS",
+  "PAPI_TOT_CYC",
 };
-constexpr int kNumCounters = sizeof(kCounterNames) / sizeof(kCounterNames[0]);
+const vector<string> kDefaultGlobalEventnames = {
+  "rapl:::PACKAGE_ENERGY:PACKAGE0",
+  "rapl:::PP0_ENERGY:PACKAGE0",
+};
 
 
 struct stats_t {
-  long long time;
-  long long counters[kNumCounters];
+  long time; // in microseconds
+  vector<long long> counters;
   stats_t& operator+=(const stats_t &rhs){
     time += rhs.time;
-    for(int i = 0; i < kNumCounters; ++i){
+    counters.reserve(rhs.counters.size());
+    for(unsigned int i = 0; i < rhs.counters.size(); ++i){
       counters[i] += rhs.counters[i];
     }
     return *this;
   }
+  // initialize time to 0 for new stats
+  stats_t() : time{0} {}
 };
 
 
@@ -86,11 +89,16 @@ void overflow(int signum, siginfo_t* info, void* context){
 }
 
 
-stats_t read_rapl(const vector<event_info_t>& eventsets, double period_secs){
+stats_t read_rapl(const vector<event_info_t>& eventsets, long period){
   stats_t res;
+  int ncounters = 0;
+  for(const auto& e : eventsets){
+    ncounters += e.codes.size();
+  }
+  res.counters.resize(ncounters);
   int cntr_offset = 0;
   for(const auto& eventset : eventsets){
-    int retval=PAPI_stop(eventset.set, res.counters + cntr_offset);
+    int retval=PAPI_stop(eventset.set, &res.counters[cntr_offset]);
     if(retval != PAPI_OK){
       cerr << "Error: bad PAPI stop: ";
       PAPI_perror(NULL);
@@ -104,17 +112,18 @@ stats_t read_rapl(const vector<event_info_t>& eventsets, double period_secs){
     }
     cntr_offset += eventset.codes.size();
   }
-  res.time = period_secs;
+  res.time = period;
   return res;
 }
 
 
-vector<event_info_t> init_papi_counters(int cpu_num) {
+vector<event_info_t> init_papi_counters(const vector<string>& event_names) {
   vector<event_info_t> eventsets;
   int retval;
-  for (auto& event_name : kCounterNames) {
+  for (auto& event_name : event_names) {
     int event_code;
-    retval = PAPI_event_name_to_code((char*)event_name, &event_code);
+    retval = PAPI_event_name_to_code(const_cast<char*>(event_name.c_str()), 
+                                     &event_code);
     if (retval != PAPI_OK) {
       cerr << "Error: bad PAPI event name to code: ";
       PAPI_perror(NULL);
@@ -150,39 +159,55 @@ vector<event_info_t> init_papi_counters(int cpu_num) {
       PAPI_perror(NULL);
       exit(-1);
     }
+    event.set = eventset;
+  }
+  return eventsets;
+}
+
+
+void attach_counters_to_core(const vector<event_info_t>& counters, int cpu_num) {
+  for(auto& counter : counters){
     PAPI_option_t options;
-    options.cpu.eventset = eventset;
+    options.cpu.eventset = counter.set;
     options.cpu.cpu_num = cpu_num;
-    retval = PAPI_set_opt(PAPI_CPU_ATTACH, &options);
+    int retval = PAPI_set_opt(PAPI_CPU_ATTACH, &options);
     if(retval != PAPI_OK) {
-      cerr << "Error: unable to CPU_ATTACH core " << cpu_num << endl;
+      cerr << "Error: unable to CPU_ATTACH core " << cpu_num << ": ";
+      PAPI_perror(NULL);
       exit(-1);
     }
+  }
+}
 
-    event.set = eventset;
-    retval = PAPI_start(eventset);
+
+void start_counters(const vector<event_info_t>& counters){
+  for(auto& counter : counters){
+    auto retval = PAPI_start(counter.set);
     if (retval != PAPI_OK) {
       cerr << "Error: bad PAPI start eventset: ";
       PAPI_perror(NULL);
       exit(-1);
     }
   }
-  return eventsets;
 }
 
 
-void do_profiling(int profilee_pid, const char* profilee_name, const double period_ms,
-                  const char* outfilename) {
+void do_profiling(int profilee_pid, const char* profilee_name,
+                  const long period, const char* outfilename,
+                  const vector<string>& per_core_event_names,
+                  const vector<string>& global_event_names) {
   /*
    * Structures holding profiling data
    */
   vector<int> children_pids;
-  vector<map<void*, stats_t>> thread_stats;
-  vector<vector<event_info_t>> thread_counters;
-  auto nthreads = thread::hardware_concurrency();
-  //auto nthreads = 1u;
-  thread_stats.resize(nthreads);
-  thread_counters.reserve(nthreads);
+  vector<map<void*, stats_t>> core_stats;
+  stats_t global_stats;
+  global_stats.counters.resize(global_event_names.size());
+  vector<vector<event_info_t>> core_counters;
+  auto ncores = thread::hardware_concurrency();
+  //auto ncores = 1u;
+  core_stats.resize(ncores);
+  core_counters.reserve(ncores);
 
   /*
    * Initialize PAPI
@@ -197,10 +222,16 @@ void do_profiling(int profilee_pid, const char* profilee_name, const double peri
   /*
    * Initialize PAPI measurement of all cores
    */
-  for(unsigned int i = 0; i < nthreads; ++i){
-    print("eaudit Starting cpu core %d\n", i);
-    thread_counters.emplace_back(init_papi_counters(i));
+  for(unsigned int i = 0; i < ncores; ++i){
+    print("Creating per-core counters on core %d\n", i);
+    core_counters.emplace_back(init_papi_counters(per_core_event_names));
+    auto& counters = core_counters[i];
+    attach_counters_to_core(counters, i);
+    start_counters(counters);
   }
+  print("Creating global counters.\n");
+  auto global_counters = init_papi_counters(global_event_names);
+  start_counters(global_counters);
 
   /*
    * Setup tracing of all profilee threads
@@ -218,9 +249,8 @@ void do_profiling(int profilee_pid, const char* profilee_name, const double peri
     exit(-1);
   }
   struct itimerval work_time;
-  auto period_secs = period_ms / 1000 /* ms per sec */;
-  time_t sleep_secs = floor(period_secs);
-  suseconds_t sleep_usecs = (period_ms - sleep_secs) * 1000 /* us per ms */;
+  time_t sleep_secs = period / kMicroToBase;
+  suseconds_t sleep_usecs = period % kMicroToBase; 
   work_time.it_value.tv_sec = sleep_secs;
   work_time.it_value.tv_usec = sleep_usecs;
   work_time.it_interval.tv_sec = sleep_secs;
@@ -270,20 +300,21 @@ void do_profiling(int profilee_pid, const char* profilee_name, const double peri
           children_cores[child] = stoi(line);
         }
         
-        // collect stats from threads
+        // collect stats from cores
         print("EAUDIT collating stats\n");
         // read all rapl counters
-        vector<stats_t> stats;
-        for(unsigned int i = 0; i < nthreads; ++i){
-          stats.emplace_back(read_rapl(thread_counters[i], period_secs));
+        vector<stats_t> stats(ncores);
+        for(unsigned int i = 0; i < ncores; ++i){
+          stats[i] = read_rapl(core_counters[i], period);
         }
+        global_stats += read_rapl(global_counters, period);
         // read all the children registers
         for(const auto& child : children_pids){
           struct user_regs_struct regs;
           ptrace(PTRACE_GETREGS, child, nullptr, &regs);
           void* rip = (void*)regs.rip;
           auto child_core = children_cores[child];
-          thread_stats[child_core][rip] += stats[child_core];
+          core_stats[child_core][rip] += stats[child_core];
         }
         // resume all children
         for(const auto& child : children_pids){
@@ -337,11 +368,11 @@ void do_profiling(int profilee_pid, const char* profilee_name, const double peri
    * Done profiling. Convert data to output file.
    */
   print("Finalize profile.\n");
-  vector<vector<pair<string, stats_t>>> thread_profiles;
-  for(unsigned int i = 0; i < nthreads; ++i){
+  vector<vector<pair<string, stats_t>>> core_profiles;
+  for(unsigned int i = 0; i < ncores; ++i){
     vector<pair<string, stats_t> > stats;
     // Convert stack IDs into function names.
-    for (auto& func : thread_stats[i]) {
+    for (auto& func : core_stats[i]) {
       stringstream cmd;
       cmd << "addr2line -f -s -C -e " << profilee_name << " " << func.first;
       auto pipe = popen(cmd.str().c_str(), "r");  // call command and read output
@@ -376,7 +407,7 @@ void do_profiling(int profilee_pid, const char* profilee_name, const double peri
                                                const pair<string, stats_t>& b) {
       return a.second.time > b.second.time;
     });
-    thread_profiles.push_back(stats);
+    core_profiles.push_back(stats);
   }
 
   /*
@@ -384,27 +415,41 @@ void do_profiling(int profilee_pid, const char* profilee_name, const double peri
    */
   ofstream myfile;
   myfile.open(outfilename);
-  for(unsigned int i = 0; i < nthreads; ++i){
+  for(unsigned int i = 0; i < ncores; ++i){
     myfile << "===THREAD " << i << "\n";
     myfile << "Func Name"
            << "\t"
            << "Time(s)";
-    for(const auto& eventset : thread_counters[i]){
+    for(const auto& eventset : core_counters[i]){
       for(const auto& name : eventset.names){
         myfile << "\t" << name;
       }
     }
     myfile << endl;
 
-    for (auto& func : thread_profiles[i]) {
-      myfile << func.first << "\t" << func.second.time* kNanoToBase;
-      for (int i = 0; i < kNumCounters; ++i) {
-        myfile << "\t" << func.second.counters[i];
+    for (auto& func : core_profiles[i]) {
+      myfile << func.first << "\t" << func.second.time / (double)kMicroToBase;
+      for(const auto& counter : func.second.counters){
+        myfile << "\t" << counter;
       }
       myfile << endl;
     }
     myfile << endl;
   }
+  myfile << "===GLOBAL\n";
+  myfile << "Time(s)";
+  for(const auto& eventset : global_counters){
+    for(const auto& name : eventset.names){
+      myfile << "\t" << name;
+    }
+  }
+  myfile << endl;
+  myfile << global_stats.time / (double)kMicroToBase;
+  for(const auto& counter : global_stats.counters){
+    myfile << "\t" << counter;
+  }
+  myfile << endl;
+
   myfile.close();
 }
 
@@ -418,17 +463,19 @@ int main(int argc, char* argv[]) {
     "\n"
     "Options:\n"
     " -h                  Show this help\n"
-    " -s <milliseconds>   Sample period in milliseconds, default 1\n"
+    " -p <microseconds>   Sample period in microseconds, default 1000\n"
     " -o <filename>       File to write profile, default eaudit.tsv\n"
     "\n";
 
-  auto period = kDefaultSamplePeriodMSecs;
+  auto period = kDefaultSamplePeriodUsecs;
   auto outfile = kDefaultOutfile;
+  auto per_core_event_names = kDefaultPerCoreEventnames;
+  auto global_event_names = kDefaultGlobalEventnames;
   int param;
-  while((param = getopt(argc, argv, "hs:o:")) != -1){
+  while((param = getopt(argc, argv, "hp:o:")) != -1){
     switch(param){
-      case 's':
-        period = stod(optarg);
+      case 'p':
+        period = stol(optarg);
         break;
       case 'o':
         outfile = optarg;
@@ -453,7 +500,8 @@ int main(int argc, char* argv[]) {
     // Let's do this.
     ptrace(PTRACE_SETOPTIONS, profilee, nullptr,
            PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
-    do_profiling(profilee, argv[optind], period, outfile);
+    do_profiling(profilee, argv[optind], period, outfile, per_core_event_names,
+                 global_event_names);
   } else if(profilee == 0){ /* profilee */
     // prepare for tracing
     ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
