@@ -453,6 +453,17 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   myfile.close();
 }
 
+
+vector<string> split(istream& stream, char delimeter) {
+  string line;
+  vector<string> names;
+  while (getline(stream, line, delimeter)) {
+    names.emplace_back(line);
+  }
+  return names;
+}
+
+
 int main(int argc, char* argv[]) {
   /*
    * Check params
@@ -465,6 +476,10 @@ int main(int argc, char* argv[]) {
     " -h                  Show this help\n"
     " -p <microseconds>   Sample period in microseconds, default 1000\n"
     " -o <filename>       File to write profile, default eaudit.tsv\n"
+    " -c <names>          Use comma-separated list <names> for per-core counters\n"
+    " -g <names>          Use comma-separated list <names> for global counters\n"
+    " -C <filename>       Read line-separated list of per-core counter names from file\n"
+    " -G <filename>       Read line-separated list of global counter names from file\n"
     "\n";
 
   auto period = kDefaultSamplePeriodUsecs;
@@ -472,13 +487,37 @@ int main(int argc, char* argv[]) {
   auto per_core_event_names = kDefaultPerCoreEventnames;
   auto global_event_names = kDefaultGlobalEventnames;
   int param;
-  while((param = getopt(argc, argv, "hp:o:")) != -1){
+  while((param = getopt(argc, argv, "hp:o:c:g:C:G:")) != -1){
     switch(param){
       case 'p':
         period = stol(optarg);
         break;
       case 'o':
         outfile = optarg;
+        break;
+      case 'c':
+        {
+          istringstream stream{optarg};
+          per_core_event_names = split(stream, ',');
+        }
+        break;
+      case 'C':
+        {
+          ifstream stream{optarg};
+          per_core_event_names = split(stream, '\n');
+        }
+        break;
+      case 'g':
+        {
+          istringstream stream{optarg};
+          global_event_names = split(stream, ',');
+        }
+        break;
+      case 'G':
+        {
+          ifstream stream{optarg};
+          global_event_names = split(stream, '\n');
+        }
         break;
       case 'h':
       case '?':
