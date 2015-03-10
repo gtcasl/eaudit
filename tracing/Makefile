@@ -22,7 +22,7 @@ test: test.o
 test.o: test.cpp
 	$(CXX) -g -O0 -c -o $@ $<
 
-.PHONY: clean release 
+.PHONY: clean release all
 
 clean:
 	-rm *.o eaudit test
