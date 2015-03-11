@@ -65,6 +65,17 @@ struct stats_t {
 };
 
 
+struct result_stats_t {
+  stats_t per_core_stats;
+  long long estimated_energy;
+  result_stats_t& operator+=(const result_stats_t &rhs){
+    per_core_stats += rhs.per_core_stats;
+    estimated_energy += rhs.estimated_energy;
+    return *this;
+  }
+};
+
+
 struct event_info_t{
   int component;
   int set;
@@ -192,6 +203,15 @@ void start_counters(const vector<event_info_t>& counters){
 }
 
 
+vector<long long> modelPerCoreEnergies(
+    const vector<string>& per_core_event_names,
+    const vector<stats_t>& core_stats, const stats_t& global_stats) {
+  vector<long long> results(core_stats.size());
+  
+  return results;
+}
+
+
 void do_profiling(int profilee_pid, const char* profilee_name,
                   const long period, const char* outfilename,
                   const vector<string>& per_core_event_names,
@@ -200,7 +220,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
    * Structures holding profiling data
    */
   vector<int> children_pids;
-  vector<map<void*, stats_t>> core_stats;
+  vector<map<void*, result_stats_t>> core_stats;
   stats_t global_stats;
   global_stats.counters.resize(global_event_names.size());
   vector<vector<event_info_t>> core_counters;
@@ -307,15 +327,23 @@ void do_profiling(int profilee_pid, const char* profilee_name,
         for(unsigned int i = 0; i < ncores; ++i){
           stats[i] = read_rapl(core_counters[i], period);
         }
-        global_stats += read_rapl(global_counters, period);
+        auto cur_global_stats = read_rapl(global_counters, period);
+        global_stats += cur_global_stats;
+
+        // TODO: poll model and update per-core counts appropriately
+        auto per_core_energies =
+            modelPerCoreEnergies(per_core_event_names, stats, cur_global_stats);
+
         // read all the children registers
         for(const auto& child : children_pids){
           struct user_regs_struct regs;
           ptrace(PTRACE_GETREGS, child, nullptr, &regs);
           void* rip = (void*)regs.rip;
           auto child_core = children_cores[child];
-          core_stats[child_core][rip] += stats[child_core];
+          core_stats[child_core][rip].per_core_stats += stats[child_core];
+          core_stats[child_core][rip].estimated_energy += per_core_energies[child_core];
         }
+        
         // resume all children
         for(const auto& child : children_pids){
           ptrace(PTRACE_CONT, child, nullptr, nullptr);
@@ -368,9 +396,9 @@ void do_profiling(int profilee_pid, const char* profilee_name,
    * Done profiling. Convert data to output file.
    */
   print("Finalize profile.\n");
-  vector<vector<pair<string, stats_t>>> core_profiles;
+  vector<vector<pair<string, result_stats_t>>> core_profiles;
   for(unsigned int i = 0; i < ncores; ++i){
-    vector<pair<string, stats_t> > stats;
+    vector<pair<string, result_stats_t> > stats;
     // Convert stack IDs into function names.
     for (auto& func : core_stats[i]) {
       stringstream cmd;
@@ -395,7 +423,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
 
       auto stat = find_if(
           begin(stats), end(stats),
-          [&](const pair<string, stats_t>& obj) { return obj.first == line; });
+          [&](const pair<string, result_stats_t>& obj) { return obj.first == line; });
       if (stat == end(stats)) {
         stats.emplace_back(line, func.second);
       } else {
@@ -403,9 +431,9 @@ void do_profiling(int profilee_pid, const char* profilee_name,
       }
     }
 
-    stable_sort(stats.begin(), stats.end(), [](const pair<string, stats_t>& a,
-                                               const pair<string, stats_t>& b) {
-      return a.second.time > b.second.time;
+    stable_sort(stats.begin(), stats.end(), [](const pair<string, result_stats_t>& a,
+                                               const pair<string, result_stats_t>& b) {
+      return a.second.estimated_energy > b.second.estimated_energy;
     });
     core_profiles.push_back(stats);
   }
@@ -419,6 +447,8 @@ void do_profiling(int profilee_pid, const char* profilee_name,
     myfile << "===THREAD " << i << "\n";
     myfile << "Func Name"
            << "\t"
+           << "Energy(j)"
+           << "\t"
            << "Time(s)";
     for(const auto& eventset : core_counters[i]){
       for(const auto& name : eventset.names){
@@ -428,8 +458,8 @@ void do_profiling(int profilee_pid, const char* profilee_name,
     myfile << endl;
 
     for (auto& func : core_profiles[i]) {
-      myfile << func.first << "\t" << func.second.time / (double)kMicroToBase;
-      for(const auto& counter : func.second.counters){
+      myfile << func.first << "\t" << func.second.estimated_energy << "\t" << func.second.per_core_stats.time / (double)kMicroToBase;
+      for(const auto& counter : func.second.per_core_stats.counters){
         myfile << "\t" << counter;
       }
       myfile << endl;
