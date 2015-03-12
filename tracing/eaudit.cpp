@@ -204,7 +204,7 @@ struct Model {
     inputs = prod(v,principal_components_);
     ublas::vector<double> norm_inputs = element_div(inputs - means_, std_deviations_);
 
-    int closest;
+    int closest = 0;
     double min_distance = numeric_limits<double>::max();
     for(unsigned k = 0; k < models_.size(); ++k) {
       //get distance
