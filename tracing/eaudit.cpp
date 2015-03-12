@@ -9,6 +9,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <math.h>
 #include <pthread.h>
 #include <sstream>
 #include <string>
@@ -20,6 +21,9 @@
 #include <unistd.h>
 #include <vector>
 
+#include <boost/numeric/ublas/matrix.hpp>
+#include <boost/numeric/ublas/io.hpp>
+
 #include "papi.h"
 
 #ifdef DEBUG
@@ -29,6 +33,7 @@
 #endif
 
 using namespace std;
+using namespace boost::numeric;
 
 namespace{
 
@@ -47,6 +52,7 @@ const vector<string> kDefaultGlobalEventnames = {
   "rapl:::PACKAGE_ENERGY:PACKAGE0",
   "rapl:::PP0_ENERGY:PACKAGE0",
 };
+const char* kDefaultModelName = "default.model";
 
 
 struct stats_t {
@@ -89,6 +95,209 @@ struct event_info_t{
  */
 volatile bool is_timer_done = false;
 } // end unnamed namespace
+
+
+struct Model {
+  Model(const string& model_fname) : model_fname_{model_fname} {
+    ifstream in{model_fname_};
+    if(!in.is_open()){
+      cerr << "Unable to open model file\n";
+      exit(-1);
+    }
+    string line;
+    // if we can read a line, we've got more models
+    int num_metrics;
+    in >> num_metrics;
+    getline(in, line);  // kill the newline
+    for (int i = 0; i < num_metrics; ++i) {
+      getline(in, line);
+      input_metrics_.push_back(line);
+    }
+    in >> means_ >> std_deviations_ >> principal_components_;
+    getline(in, line);  // kill one line
+    for (int k = 0; getline(in, line); ++k) {
+      model_t model;
+      in >> model.centroid_ >> model.weights_;
+      getline(in, line);  // kill one line
+
+      model.predictors_.resize(model.weights_.size());
+      for (unsigned i = 0; i < model.predictors_.size(); i++) {
+        getline(in, line);
+        istringstream iss(line);
+        int op;
+        bool fail = false;
+        while (iss.good()) {
+          basis new_basis;
+          iss >> op;
+          switch (op) {
+            case 0:
+              new_basis.f = identity_func;
+              break;
+            case 1:
+              new_basis.f = power_func;
+              if (!(iss >> new_basis.op1 >> new_basis.op2)) {
+                fail = true;
+              }
+              break;
+            case 2:
+              new_basis.f = crossterm_func;
+              if (!(iss >> new_basis.op1 >> new_basis.op2)) {
+                fail = true;
+              }
+              break;
+            case 3:
+              new_basis.f = sqrt_func;
+              if (!(iss >> new_basis.op1)) {
+                fail = true;
+              }
+              break;
+            case 4:
+              new_basis.f = log_func;
+              if (!(iss >> new_basis.op1)) {
+                fail = true;
+              }
+              break;
+            default:
+              fail = true;
+              break;
+          }
+          if (fail) {
+            stringstream ss;
+            cerr << "eigermodel: malformed function in model \"" << model_fname_
+               << "\"\n";
+            exit(-1);
+          }
+          model.predictors_[i].push_back(new_basis);
+        }
+      }
+      models_.push_back(model);
+    }
+  }
+
+  double poll(const vector<string>& names, const vector<long long>& values) const {
+    ublas::vector<double> v = ublas::vector<double>(input_metrics_.size());
+
+    vector<string> missing;
+
+    int i = 0;
+    for(const auto& input_metric : input_metrics_){
+      auto param = find(begin(names), end(names), input_metric);
+      if(param != end(names)){
+        v(i) = values[distance(begin(names), param)];
+      } else {
+        missing.push_back(input_metric);
+      }
+      ++i;
+    }
+
+    if(missing.size() > 0) {
+      stringstream ss;
+      cerr << "eigermodel: missing input parameters to model \"" << model_fname_ <<
+         "\":\n";
+      for(const auto& elem : missing){
+        cerr << "-->\t" << elem << "\n";
+      }
+      exit(-1);
+    }
+
+    ublas::vector<double> inputs;
+    inputs = prod(v,principal_components_);
+    ublas::vector<double> norm_inputs = element_div(inputs - means_, std_deviations_);
+
+    int closest;
+    double min_distance = numeric_limits<double>::max();
+    for(unsigned k = 0; k < models_.size(); ++k) {
+      //get distance
+      double distance = norm_2(norm_inputs - models_[k].centroid_);
+      if(distance < min_distance) {
+        closest = k;
+        min_distance = distance;
+      }
+    }
+    ublas::vector<double> function_vals =
+      ublas::vector<double>(models_[closest].predictors_.size());
+    i = 0;
+    for(auto it =
+          begin(models_[closest].predictors_);
+        it != end(models_[closest].predictors_); ++it, ++i) {
+      double res = 1.0;
+      for(auto bi = begin(*it);
+          bi != end(*it); ++bi) {
+        res *= (*bi->f)(inputs,bi->op1,bi->op2);
+      }
+      function_vals(i) = res;
+    }
+    double final_res = fabs(inner_prod(models_[closest].weights_,function_vals));
+    return final_res;
+  }
+  static double identity_func(ublas::vector<double>, double, double) {
+    return 1.0;
+  }
+  static double power_func(ublas::vector<double> v, double op1,
+                           double op2){
+    // guarantee that integer ops stored in doubles are correctly converted to the nearest integer
+    int int_op1 = floor(op1 + 0.5);
+    //int int_op2 = (int) (op2 + 0.5);
+    return v(int_op1) != 0.0 ? pow(fabs(v(int_op1)),op2) : 1.0;
+  }
+  static double crossterm_func(ublas::vector<double> v,
+                               double op1, double op2){
+    // guarantee that integer ops stored in doubles are correctly converted to the nearest integer
+    int int_op1 = floor(op1 + 0.5);
+    int int_op2 = floor(op2 + 0.5);
+    return v(int_op1) * v(int_op2);
+  }
+  static double sqrt_func(ublas::vector<double> v, double op1, double) {
+    int int_op1 = floor(op1 + 0.5);
+    return sqrt(fabs(v(int_op1)));
+  }
+  static double log_func(ublas::vector<double> v, double op1, double) {
+    int int_op1 = floor(op1 + 0.5);
+    if(v(int_op1) == 0.0) {
+      return 1.0;
+    }
+    return log(fabs(v(int_op1)))/log(2.0);
+  }
+  static double hinge1_func(ublas::vector<double> v, double op1,
+                            double op2){
+    // guarantee that integer ops stored in doubles are correctly converted to the nearest integer
+    double int_op1 = floor(op1 + 0.5);
+    double val = v(int_op1);
+    return val > op2 ? val - op2 : 0.0;
+  }
+  static double hinge2_func(ublas::vector<double> v, double op1,
+                            double op2){
+    // guarantee that integer ops stored in doubles are correctly converted to the nearest integer
+    double int_op1 = floor(op1 + 0.5);
+    double val = v(int_op1);
+    return val < op2 ? op2 - val : 0.0;
+  }
+
+  typedef double (*function_ptr)(ublas::vector<double>, double,
+                                 double);
+
+  struct basis {
+    function_ptr f;
+    double op1;
+    double op2;
+
+    basis() : f(NULL), op1(0.0), op2(0.0) {}
+  };
+
+  string model_fname_;
+
+  struct model_t {
+    ublas::vector<double> centroid_;
+    ublas::vector<double> weights_;
+    vector<vector<basis> > predictors_;
+  };
+
+  ublas::vector<double> means_;
+  ublas::vector<double> std_deviations_;
+  ublas::matrix<double> principal_components_;
+  vector<string> input_metrics_;
+  vector<model_t> models_;
+};
 
 
 void overflow(int signum, siginfo_t* info, void* context){
@@ -204,10 +413,19 @@ void start_counters(const vector<event_info_t>& counters){
 
 
 vector<long long> modelPerCoreEnergies(
-    const vector<string>& per_core_event_names,
-    const vector<stats_t>& core_stats, const stats_t& global_stats) {
+    const Model& model, const vector<string>& per_core_event_names,
+    const vector<stats_t>& core_stats, long long total_energy) {
   vector<long long> results(core_stats.size());
-  
+  //double poll(map<string, double> params) const {
+  vector<double> model_vals;
+  model_vals.reserve(core_stats.size());
+  for(const auto& core_stat : core_stats){
+    model_vals.push_back(model.poll(per_core_event_names, core_stat.counters));
+  }
+  double total = accumulate(begin(model_vals), end(model_vals), double{0});
+  for(unsigned i = 0; i < results.size(); ++i){
+    results[i] = model_vals[i] / total * total_energy;
+  }
   return results;
 }
 
@@ -215,7 +433,8 @@ vector<long long> modelPerCoreEnergies(
 void do_profiling(int profilee_pid, const char* profilee_name,
                   const long period, const char* outfilename,
                   const vector<string>& per_core_event_names,
-                  const vector<string>& global_event_names) {
+                  const vector<string>& global_event_names,
+                  const Model& model) {
   /*
    * Structures holding profiling data
    */
@@ -331,8 +550,9 @@ void do_profiling(int profilee_pid, const char* profilee_name,
         global_stats += cur_global_stats;
 
         // TODO: poll model and update per-core counts appropriately
-        auto per_core_energies =
-            modelPerCoreEnergies(per_core_event_names, stats, cur_global_stats);
+        // TODO: cur_global_stats[0] is hardwired as the total energy to be modeled
+        auto per_core_energies = modelPerCoreEnergies(
+            model, per_core_event_names, stats, cur_global_stats.counters[0]);
 
         // read all the children registers
         for(const auto& child : children_pids){
@@ -510,14 +730,16 @@ int main(int argc, char* argv[]) {
     " -g <names>          Use comma-separated list <names> for global counters\n"
     " -C <filename>       Read line-separated list of per-core counter names from file\n"
     " -G <filename>       Read line-separated list of global counter names from file\n"
+    " -m <filename>       Model file name, default 'default.model'\n"
     "\n";
 
   auto period = kDefaultSamplePeriodUsecs;
   auto outfile = kDefaultOutfile;
   auto per_core_event_names = kDefaultPerCoreEventnames;
   auto global_event_names = kDefaultGlobalEventnames;
+  auto model_fname = kDefaultModelName;
   int param;
-  while((param = getopt(argc, argv, "hp:o:c:g:C:G:")) != -1){
+  while((param = getopt(argc, argv, "hp:o:c:g:C:G:m:")) != -1){
     switch(param){
       case 'p':
         period = stol(optarg);
@@ -549,6 +771,11 @@ int main(int argc, char* argv[]) {
           global_event_names = split(stream, '\n');
         }
         break;
+      case 'm':
+        {
+          model_fname = optarg;
+        }
+        break;
       case 'h':
       case '?':
         cout << usage;
@@ -562,6 +789,11 @@ int main(int argc, char* argv[]) {
   }
 
   /*
+   * Make our model
+   */
+  Model model{model_fname};
+
+  /*
    * Fork a process to run the profiled application
    */
   auto profilee = fork();
@@ -570,7 +802,7 @@ int main(int argc, char* argv[]) {
     ptrace(PTRACE_SETOPTIONS, profilee, nullptr,
            PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
     do_profiling(profilee, argv[optind], period, outfile, per_core_event_names,
-                 global_event_names);
+                 global_event_names, model);
   } else if(profilee == 0){ /* profilee */
     // prepare for tracing
     ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
