@@ -1,4 +1,4 @@
-CXXFLAGS=-g -std=gnu++0x -Wall -Wextra -pthread
+CXXFLAGS=-g -std=gnu++0x -Wall -Wextra -pthread -Isupereasyjson
 LDFLAGS=-lpapi -lpthread
 
 ifeq ($(RELEASE),y)
@@ -9,11 +9,11 @@ endif
 
 all: eaudit test
 
-eaudit: eaudit.o
+eaudit: eaudit.o supereasyjson/json.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 	sudo setcap cap_sys_rawio=ep $@
 
-eaudit.o: eaudit.cpp
+%.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 test: test.o
@@ -25,7 +25,7 @@ test.o: test.cpp
 .PHONY: clean release all
 
 clean:
-	-rm *.o eaudit test
+	-rm *.o supereasyjson/*.o eaudit test
 
 release:
 	$(MAKE) RELEASE=y

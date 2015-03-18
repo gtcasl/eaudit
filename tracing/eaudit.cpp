@@ -26,6 +26,8 @@
 
 #include "papi.h"
 
+#include "supereasyjson/json.h"
+
 #ifdef DEBUG
 #define print(...) printf(__VA_ARGS__)
 #else

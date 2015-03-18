@@ -1,0 +1,46 @@
+{
+    "metric_names": [
+        "PAPI_TOT_INS",
+        "PAPI_TOT_CYC"
+    ],
+    "means": [
+        23313.7367568
+    ],
+    "std_devs": [
+        12313.6455446
+    ],
+    "rotation_matrix": [
+        [1.0],
+        [0.0]
+    ],
+    "clusters:": [
+        {
+            "center": [
+                -2.07594902229e-14
+            ],
+            "weights": [
+                3.8528341188048456e-07,
+                -2.1457351767381467e-05
+            ],
+            "functions": [
+                "identity",
+                "power": {
+                    "index": 0,
+                    "exponent": 1
+                },
+                "product": {
+                    "indices": [
+                        0,
+                        1
+                    ]
+                },
+                "sqrt": {
+                    "index": 0
+                },
+                "log": {
+                    "index": 0
+                }
+            ]
+        }
+    ]
+}
