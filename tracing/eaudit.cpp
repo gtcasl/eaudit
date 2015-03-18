@@ -114,24 +114,98 @@ struct Model {
       exit(-1);
     }
     json::Object model = modelval.ToObject();
+
     for(const auto& name : model["metric_names"].ToArray()){
       input_metrics_.push_back(name.ToString());
     }
-    auto means = model["means"].ToArray();
+
+    const auto means = model["means"].ToArray();
     means_.resize(means.size());
     for(size_t i = 0; i < means.size(); ++i){
       means_[i] = means[i].ToDouble();
     }
-    /*
-    for(const auto& std_dev : model["std_devs"].ToArray()){
-      std_deviations_.push_back(std_dev.ToDouble());
+
+    const auto std_devs = model["std_devs"].ToArray();
+    std_deviations_.resize(std_devs.size());
+    for(size_t i = 0; i < std_devs.size(); ++i){
+      std_deviations_[i] = std_devs[i].ToDouble();
     }
-    for(const auto& pc_row : model["rotation_matrix"].ToArray()){
-      for(const auto* pc_col : pc_row.ToArray()){
-        principal_components_.push_back(std_dev.ToDouble());
+
+    const auto rot_mat = model["rotation_matrix"].ToArray();
+    const auto n_rot_mat_rows = rot_mat.size();
+    if(n_rot_mat_rows > 0){
+      const auto n_rot_mat_cols = rot_mat[0].ToArray().size();
+      principal_components_.resize(n_rot_mat_rows, n_rot_mat_cols);
+      for(size_t i = 0; i < n_rot_mat_rows; ++i){
+        const auto row = rot_mat[i].ToArray();
+        if(row.size() != n_rot_mat_cols){
+          cerr << "Uneven length of rows in rotation matrix\n";
+          exit(-1);
+        }
+        for(size_t j = 0; j < n_rot_mat_cols; ++j){
+          principal_components_(i,j) = row[i].ToDouble();
+        }
       }
     }
-    */
+
+    const auto clusters = model["clusters"].ToArray();
+    for(const auto& cluster_val : clusters){
+      const auto& cluster = cluster_val.ToObject();
+      model_t model;
+
+      const auto center = cluster["center"].ToArray();
+      model.centroid_.resize(center.size());
+      for(size_t i = 0; i < center.size(); ++i){
+        model.centroid_[i] = center[i].ToDouble();
+      }
+
+      const auto weights = cluster["weights"].ToArray();
+      model.weights_.resize(weights.size());
+      for(size_t i = 0; i < weights.size(); ++i){
+        model.weights_[i] = weights[i].ToDouble();
+      }
+
+      const auto functions = cluster["functions"].ToArray();
+      model.regressors_.resize(functions.size());
+      for(size_t i = 0; i < functions.size(); ++i){
+        // turn function object into a lambda doing the right thing
+        auto func = functions[i].ToObject();
+        auto func_name = func["name"].ToString();
+        if(func_name == "identity"){
+          model.regressors_[i] = function<double(const ublas::vector<double>&)>(
+                                   [](ublas::vector<double>){ return 1.0; });
+        } else if(func_name == "power"){
+          auto idx = func["index"].ToInt();
+          auto exp = func["exponent"].ToDouble();
+          model.regressors_[i] = function<double(const ublas::vector<double>&)>(
+            [=](const ublas::vector<double>& v) {
+              return v(exp) != 0.0 ? pow(fabs(v(idx)), exp) : 1.0;
+            });
+        } else if(func_name == "product"){
+          auto first_idx = func["first_idx"].ToInt();
+          auto second_idx = func["second_idx"].ToInt();
+          model.regressors_[i] = function<double(const ublas::vector<double>&)>(
+            [=](const ublas::vector<double>& v) {
+              return v(first_idx) * v(second_idx);
+            });
+        } else if(func_name == "sqrt"){
+          auto idx = func["index"].ToInt();
+          model.regressors_[i] = function<double(const ublas::vector<double>&)>(
+            [=](const ublas::vector<double>& v) {
+              return sqrt(fabs(v(idx)));
+            });
+        } else if(func_name == "log"){
+          auto idx = func["index"].ToInt();
+          model.regressors_[i] = function<double(const ublas::vector<double>&)>(
+            [=](const ublas::vector<double>& v) {
+              return idx == 0 ? 1.0 : log(fabs(v(idx)))/log(2);
+            });
+        } else {
+          cerr << "Invalid function name '" << func["name"].ToString() << "\n";
+          exit(-1);
+        }
+      }
+    }
   }
 
   double poll(const vector<string>& names, const vector<long long>& values) const {
@@ -175,81 +249,23 @@ struct Model {
       }
     }
     ublas::vector<double> function_vals =
-      ublas::vector<double>(models_[closest].predictors_.size());
+      ublas::vector<double>(models_[closest].regressors_.size());
     i = 0;
     for(auto it =
-          begin(models_[closest].predictors_);
-        it != end(models_[closest].predictors_); ++it, ++i) {
-      double res = 1.0;
-      for(auto bi = begin(*it);
-          bi != end(*it); ++bi) {
-        res *= (*bi->f)(inputs,bi->op1,bi->op2);
-      }
-      function_vals(i) = res;
+          begin(models_[closest].regressors_);
+        it != end(models_[closest].regressors_); ++it, ++i) {
+      function_vals(i) = (*it)(inputs);
     }
     double final_res = fabs(inner_prod(models_[closest].weights_,function_vals));
     return final_res;
   }
-  static double identity_func(ublas::vector<double>, double, double) {
-    return 1.0;
-  }
-  static double power_func(ublas::vector<double> v, double op1,
-                           double op2){
-    // guarantee that integer ops stored in doubles are correctly converted to the nearest integer
-    int int_op1 = floor(op1 + 0.5);
-    //int int_op2 = (int) (op2 + 0.5);
-    return v(int_op1) != 0.0 ? pow(fabs(v(int_op1)),op2) : 1.0;
-  }
-  static double crossterm_func(ublas::vector<double> v,
-                               double op1, double op2){
-    // guarantee that integer ops stored in doubles are correctly converted to the nearest integer
-    int int_op1 = floor(op1 + 0.5);
-    int int_op2 = floor(op2 + 0.5);
-    return v(int_op1) * v(int_op2);
-  }
-  static double sqrt_func(ublas::vector<double> v, double op1, double) {
-    int int_op1 = floor(op1 + 0.5);
-    return sqrt(fabs(v(int_op1)));
-  }
-  static double log_func(ublas::vector<double> v, double op1, double) {
-    int int_op1 = floor(op1 + 0.5);
-    if(v(int_op1) == 0.0) {
-      return 1.0;
-    }
-    return log(fabs(v(int_op1)))/log(2.0);
-  }
-  static double hinge1_func(ublas::vector<double> v, double op1,
-                            double op2){
-    // guarantee that integer ops stored in doubles are correctly converted to the nearest integer
-    double int_op1 = floor(op1 + 0.5);
-    double val = v(int_op1);
-    return val > op2 ? val - op2 : 0.0;
-  }
-  static double hinge2_func(ublas::vector<double> v, double op1,
-                            double op2){
-    // guarantee that integer ops stored in doubles are correctly converted to the nearest integer
-    double int_op1 = floor(op1 + 0.5);
-    double val = v(int_op1);
-    return val < op2 ? op2 - val : 0.0;
-  }
-
-  typedef double (*function_ptr)(ublas::vector<double>, double,
-                                 double);
-
-  struct basis {
-    function_ptr f;
-    double op1;
-    double op2;
-
-    basis() : f(NULL), op1(0.0), op2(0.0) {}
-  };
 
   string model_fname_;
 
   struct model_t {
     ublas::vector<double> centroid_;
     ublas::vector<double> weights_;
-    vector<vector<basis> > predictors_;
+    vector<function<double(const ublas::vector<double>&)>> regressors_;
   };
 
   ublas::vector<double> means_;

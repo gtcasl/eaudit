@@ -23,21 +23,25 @@
                 -2.1457351767381467e-05
             ],
             "functions": [
-                "identity",
-                "power": {
+                {
+                    "name": "identity"
+                },
+                {
+                    "name": "power",
                     "index": 0,
                     "exponent": 1
                 },
-                "product": {
-                    "indices": [
-                        0,
-                        1
-                    ]
+                {
+                    "name": "product",
+                    "first_idx": 0,
+                    "second_idx": 1
                 },
-                "sqrt": {
+                {
+                    "name": "sqrt",
                     "index": 0
                 },
-                "log": {
+                {
+                    "name": "log",
                     "index": 0
                 }
             ]
