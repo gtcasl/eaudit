@@ -106,74 +106,32 @@ struct Model {
       cerr << "Unable to open model file\n";
       exit(-1);
     }
-    string line;
-    // if we can read a line, we've got more models
-    int num_metrics;
-    in >> num_metrics;
-    getline(in, line);  // kill the newline
-    for (int i = 0; i < num_metrics; ++i) {
-      getline(in, line);
-      input_metrics_.push_back(line);
+    stringstream buffer;
+    buffer << in.rdbuf();
+    json::Value modelval = json::Deserialize(buffer.str());
+    if(modelval.GetType() == json::NULLVal){
+      cerr << "Unable to parse json from model file\n";
+      exit(-1);
     }
-    in >> means_ >> std_deviations_ >> principal_components_;
-    getline(in, line);  // kill one line
-    for (int k = 0; getline(in, line); ++k) {
-      model_t model;
-      in >> model.centroid_ >> model.weights_;
-      getline(in, line);  // kill one line
-
-      model.predictors_.resize(model.weights_.size());
-      for (unsigned i = 0; i < model.predictors_.size(); i++) {
-        getline(in, line);
-        istringstream iss(line);
-        int op;
-        bool fail = false;
-        while (iss.good()) {
-          basis new_basis;
-          iss >> op;
-          switch (op) {
-            case 0:
-              new_basis.f = identity_func;
-              break;
-            case 1:
-              new_basis.f = power_func;
-              if (!(iss >> new_basis.op1 >> new_basis.op2)) {
-                fail = true;
-              }
-              break;
-            case 2:
-              new_basis.f = crossterm_func;
-              if (!(iss >> new_basis.op1 >> new_basis.op2)) {
-                fail = true;
-              }
-              break;
-            case 3:
-              new_basis.f = sqrt_func;
-              if (!(iss >> new_basis.op1)) {
-                fail = true;
-              }
-              break;
-            case 4:
-              new_basis.f = log_func;
-              if (!(iss >> new_basis.op1)) {
-                fail = true;
-              }
-              break;
-            default:
-              fail = true;
-              break;
-          }
-          if (fail) {
-            stringstream ss;
-            cerr << "eigermodel: malformed function in model \"" << model_fname_
-               << "\"\n";
-            exit(-1);
-          }
-          model.predictors_[i].push_back(new_basis);
-        }
+    json::Object model = modelval.ToObject();
+    for(const auto& name : model["metric_names"].ToArray()){
+      input_metrics_.push_back(name.ToString());
+    }
+    auto means = model["means"].ToArray();
+    means_.resize(means.size());
+    for(size_t i = 0; i < means.size(); ++i){
+      means_[i] = means[i].ToDouble();
+    }
+    /*
+    for(const auto& std_dev : model["std_devs"].ToArray()){
+      std_deviations_.push_back(std_dev.ToDouble());
+    }
+    for(const auto& pc_row : model["rotation_matrix"].ToArray()){
+      for(const auto* pc_col : pc_row.ToArray()){
+        principal_components_.push_back(std_dev.ToDouble());
       }
-      models_.push_back(model);
     }
+    */
   }
 
   double poll(const vector<string>& names, const vector<long long>& values) const {
