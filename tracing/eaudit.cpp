@@ -36,6 +36,7 @@
 
 using namespace std;
 using namespace boost::numeric;
+using namespace json;
 
 namespace{
 
@@ -137,13 +138,8 @@ struct Model {
       const auto n_rot_mat_cols = rot_mat[0].ToArray().size();
       principal_components_.resize(n_rot_mat_rows, n_rot_mat_cols);
       for(size_t i = 0; i < n_rot_mat_rows; ++i){
-        const auto row = rot_mat[i].ToArray();
-        if(row.size() != n_rot_mat_cols){
-          cerr << "Uneven length of rows in rotation matrix\n";
-          exit(-1);
-        }
         for(size_t j = 0; j < n_rot_mat_cols; ++j){
-          principal_components_(i,j) = row[i].ToDouble();
+          principal_components_(i,j) = rot_mat[i][j].ToDouble();
         }
       }
     }
