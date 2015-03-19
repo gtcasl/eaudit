@@ -18,31 +18,32 @@
             "center": [
                 -2.07594902229e-14
             ],
-            "weights": [
-                3.8528341188048456e-07,
-                -2.1457351767381467e-05
-            ],
-            "functions": [
+            "regressors": [
                 {
-                    "name": "identity"
+                    "function": "identity",
+                    "weight": 1.253241
                 },
                 {
-                    "name": "power",
+                    "function": "power",
                     "index": 0,
                     "exponent": 1
+                    "weight": 1.253241
                 },
                 {
-                    "name": "product",
+                    "function": "product",
                     "first_idx": 0,
                     "second_idx": 1
+                    "weight": 1.253241
                 },
                 {
-                    "name": "sqrt",
+                    "function": "sqrt",
                     "index": 0
+                    "weight": 1.253241
                 },
                 {
-                    "name": "log",
+                    "function": "log",
                     "index": 0
+                    "weight": 1.253241
                 }
             ]
         }

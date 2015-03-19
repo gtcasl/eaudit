@@ -159,51 +159,47 @@ struct Model {
         model.centroid_[i] = center[i].ToDouble();
       }
 
-      const auto weights = cluster["weights"].ToArray();
-      model.weights_.resize(weights.size());
-      for(size_t i = 0; i < weights.size(); ++i){
-        model.weights_[i] = weights[i].ToDouble();
-      }
-
-      const auto functions = cluster["functions"].ToArray();
-      model.regressors_.resize(functions.size());
-      for(size_t i = 0; i < functions.size(); ++i){
+      const auto regressors = cluster["regressors"].ToArray();
+      model.regressors_.resize(regressors.size());
+      model.weights_.resize(regressors.size());
+      for(size_t i = 0; i < regressors.size(); ++i){
         // turn function object into a lambda doing the right thing
-        auto func = functions[i].ToObject();
-        auto func_name = func["name"].ToString();
-        if(func_name == "identity"){
+        auto regressor = regressors[i].ToObject();
+        auto regressor_name = regressor["function"].ToString();
+        if(regressor_name == "identity"){
           model.regressors_[i] = function<double(const ublas::vector<double>&)>(
                                    [](ublas::vector<double>){ return 1.0; });
-        } else if(func_name == "power"){
-          auto idx = func["index"].ToInt();
-          auto exp = func["exponent"].ToDouble();
+        } else if(regressor_name == "power"){
+          auto idx = regressor["index"].ToInt();
+          auto exp = regressor["exponent"].ToDouble();
           model.regressors_[i] = function<double(const ublas::vector<double>&)>(
             [=](const ublas::vector<double>& v) {
               return v(exp) != 0.0 ? pow(fabs(v(idx)), exp) : 1.0;
             });
-        } else if(func_name == "product"){
-          auto first_idx = func["first_idx"].ToInt();
-          auto second_idx = func["second_idx"].ToInt();
+        } else if(regressor_name == "product"){
+          auto first_idx = regressor["first_idx"].ToInt();
+          auto second_idx = regressor["second_idx"].ToInt();
           model.regressors_[i] = function<double(const ublas::vector<double>&)>(
             [=](const ublas::vector<double>& v) {
               return v(first_idx) * v(second_idx);
             });
-        } else if(func_name == "sqrt"){
-          auto idx = func["index"].ToInt();
+        } else if(regressor_name == "sqrt"){
+          auto idx = regressor["index"].ToInt();
           model.regressors_[i] = function<double(const ublas::vector<double>&)>(
             [=](const ublas::vector<double>& v) {
               return sqrt(fabs(v(idx)));
             });
-        } else if(func_name == "log"){
-          auto idx = func["index"].ToInt();
+        } else if(regressor_name == "log"){
+          auto idx = regressor["index"].ToInt();
           model.regressors_[i] = function<double(const ublas::vector<double>&)>(
             [=](const ublas::vector<double>& v) {
               return idx == 0 ? 1.0 : log(fabs(v(idx)))/log(2);
             });
         } else {
-          cerr << "Invalid function name '" << func["name"].ToString() << "\n";
+          cerr << "Invalid function name '" << regressor["name"].ToString() << "\n";
           exit(-1);
         }
+        model.weights_[i] = regressor["weight"].ToDouble();
       }
     }
   }
