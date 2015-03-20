@@ -46,6 +46,7 @@ namespace{
 const unsigned kProcStatIdx = 39;
 const long kDefaultSamplePeriodUsecs = 1000;
 const long kMicroToBase = 1e6;
+const long kNanoToBase = 1e9;
 const char* kDefaultOutfile = "eaudit.tsv";
 const vector<string> kDefaultPerCoreEventnames = {
   "PAPI_TOT_INS",
@@ -63,7 +64,7 @@ struct stats_t {
   vector<long long> counters;
   stats_t& operator+=(const stats_t &rhs){
     time += rhs.time;
-    counters.reserve(rhs.counters.size());
+    counters.resize(rhs.counters.size());
     for(unsigned int i = 0; i < rhs.counters.size(); ++i){
       counters[i] += rhs.counters[i];
     }
@@ -529,8 +530,9 @@ void do_profiling(int profilee_pid, const char* profilee_name,
           ptrace(PTRACE_GETREGS, child, nullptr, &regs);
           void* rip = (void*)regs.rip;
           auto child_core = children_cores[child];
-          core_stats[child_core][rip].per_core_stats += stats[child_core];
-          core_stats[child_core][rip].estimated_energy += per_core_energies[child_core];
+          auto& results = core_stats[child_core][rip];
+          results.per_core_stats += stats[child_core];
+          results.estimated_energy += per_core_energies[child_core];
         }
         
         // resume all children
@@ -636,7 +638,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
     myfile << "===THREAD " << i << "\n";
     myfile << "Func Name"
            << "\t"
-           << "Energy(j)"
+           << "Energy (j)"
            << "\t"
            << "Time(s)";
     for(const auto& eventset : core_counters[i]){
@@ -647,7 +649,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
     myfile << endl;
 
     for (auto& func : core_profiles[i]) {
-      myfile << func.first << "\t" << func.second.estimated_energy << "\t" << func.second.per_core_stats.time / (double)kMicroToBase;
+      myfile << func.first << "\t" << func.second.estimated_energy / (double)kNanoToBase << "\t" << func.second.per_core_stats.time / (double)kMicroToBase;
       for(const auto& counter : func.second.per_core_stats.counters){
         myfile << "\t" << counter;
       }
@@ -659,13 +661,14 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   myfile << "Time(s)";
   for(const auto& eventset : global_counters){
     for(const auto& name : eventset.names){
-      myfile << "\t" << name;
+      myfile << "\t" << name << " (j)";
     }
   }
   myfile << endl;
   myfile << global_stats.time / (double)kMicroToBase;
   for(const auto& counter : global_stats.counters){
-    myfile << "\t" << counter;
+    // TODO: assume that one tick of the counter is one nano-unit (ie joules)
+    myfile << "\t" << counter / (double)kNanoToBase;
   }
   myfile << endl;
 
