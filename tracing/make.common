@@ -1,1 +1,0 @@
-EAUDIT_LIBS=-Wl,--export-dynamic

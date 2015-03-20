@@ -4,19 +4,19 @@
         "PAPI_TOT_CYC"
     ],
     "means": [
-        23313.7367568
+        23313.7367568, 23313.7367568
     ],
     "std_devs": [
-        12313.6455446
+        12313.6455446, 12313.6455446
     ],
     "rotation_matrix": [
-        [1.0],
-        [0.0]
+        [1.0, 0.0],
+        [0.0, 1.0]
     ],
-    "clusters:": [
+    "clusters": [
         {
             "center": [
-                -2.07594902229e-14
+                -2.07594902229e-14, -2.07594902229e-14
             ],
             "regressors": [
                 {
@@ -26,23 +26,23 @@
                 {
                     "function": "power",
                     "index": 0,
-                    "exponent": 1
+                    "exponent": 1,
                     "weight": 1.253241
                 },
                 {
                     "function": "product",
                     "first_idx": 0,
-                    "second_idx": 1
+                    "second_idx": 1,
                     "weight": 1.253241
                 },
                 {
                     "function": "sqrt",
-                    "index": 0
+                    "index": 0,
                     "weight": 1.253241
                 },
                 {
                     "function": "log",
-                    "index": 0
+                    "index": 0,
                     "weight": 1.253241
                 }
             ]
