@@ -531,21 +531,23 @@ void do_profiling(int profilee_pid, const char* profilee_name,
       }
       pclose(pipe);
       stringstream resultstream{result};
-      string line;
-      getline(resultstream, line);
+      string func_name, file_name;
+      getline(resultstream, func_name);
+      getline(resultstream, file_name);
       // NOTE: remove the trailing function annotation that says that this 
       // function has been used/called by different threads
-      if(line.back() == ']'){
-        auto last_open_bracket_pos = line.find_last_of('[');
-        line.erase(last_open_bracket_pos - 1);
+      if(func_name.back() == ']'){
+        auto last_open_bracket_pos = func_name.find_last_of('[');
+        func_name.erase(last_open_bracket_pos - 1);
       }
-      print("Reporting function %s\n", line.c_str());
+      string entry_name = func_name + " at " + file_name;
+      print("Reporting function %s\n", entry_name.c_str());
 
       auto stat = find_if(
           begin(stats), end(stats),
-          [&](const pair<string, result_stats_t>& obj) { return obj.first == line; });
+          [&](const pair<string, result_stats_t>& obj) { return obj.first == entry_name; });
       if (stat == end(stats)) {
-        stats.emplace_back(line, func.second);
+        stats.emplace_back(entry_name, func.second);
       } else {
         stat->second += func.second;
       }
