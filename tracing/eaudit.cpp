@@ -516,11 +516,6 @@ void do_profiling(int profilee_pid, const char* profilee_name,
     // Convert stack IDs into function names.
     for (auto& func : core_stats[i]) {
       stringstream cmd;
-      static bool done = false;
-      if(!done){
-        cout << "DEBUG name: " << profilee_name << " val: " << func.first << "\n";
-        done = true;
-      }
       cmd << "addr2line -f -s -C -e " << profilee_name << " " << func.first;
       auto pipe = popen(cmd.str().c_str(), "r");  // call command and read output
       if (!pipe) {
