@@ -27,6 +27,7 @@
 #include "papi.h"
 
 #include "supereasyjson/json.h"
+#include "papi-helpers.hpp"
 
 #ifdef DEBUG
 #define print(...) printf(__VA_ARGS__)
@@ -37,6 +38,7 @@
 using namespace std;
 using namespace boost::numeric;
 using namespace json;
+using namespace papi;
 
 namespace{
 
@@ -83,14 +85,6 @@ struct result_stats_t {
     estimated_energy += rhs.estimated_energy;
     return *this;
   }
-};
-
-
-struct event_info_t{
-  int component;
-  int set;
-  vector<int> codes;
-  vector<string> names;
 };
 
 
@@ -306,80 +300,6 @@ stats_t read_rapl(const vector<event_info_t>& eventsets, long period){
   return res;
 }
 
-
-vector<event_info_t> init_papi_counters(const vector<string>& event_names) {
-  vector<event_info_t> eventsets;
-  int retval;
-  for (auto& event_name : event_names) {
-    int event_code;
-    retval = PAPI_event_name_to_code(const_cast<char*>(event_name.c_str()), 
-                                     &event_code);
-    if (retval != PAPI_OK) {
-      cerr << "Error: bad PAPI event name to code: ";
-      PAPI_perror(NULL);
-      exit(-1);
-    }
-    int component = PAPI_get_event_component(event_code);
-    auto elem = find_if(
-        begin(eventsets), end(eventsets),
-        [&](const event_info_t& c) { return c.component == component; });
-    if (elem == end(eventsets)) {
-      event_info_t new_info;
-      new_info.component = component;
-      new_info.codes.push_back(event_code);
-      new_info.names.emplace_back(event_name);
-      eventsets.push_back(new_info);
-    } else {
-      elem->codes.push_back(event_code);
-      elem->names.emplace_back(event_name);
-    }
-  }
-
-  for (auto& event : eventsets) {
-    int eventset = PAPI_NULL;
-    PAPI_create_eventset(&eventset);
-    if (retval != PAPI_OK) {
-      cerr << "Error: bad PAPI create eventset: ";
-      PAPI_perror(NULL);
-      exit(-1);
-    }
-    PAPI_add_events(eventset, &event.codes[0], event.codes.size());
-    if (retval != PAPI_OK) {
-      cerr << "Error: bad PAPI add eventset: ";
-      PAPI_perror(NULL);
-      exit(-1);
-    }
-    event.set = eventset;
-  }
-  return eventsets;
-}
-
-
-void attach_counters_to_core(const vector<event_info_t>& counters, int cpu_num) {
-  for(auto& counter : counters){
-    PAPI_option_t options;
-    options.cpu.eventset = counter.set;
-    options.cpu.cpu_num = cpu_num;
-    int retval = PAPI_set_opt(PAPI_CPU_ATTACH, &options);
-    if(retval != PAPI_OK) {
-      cerr << "Error: unable to CPU_ATTACH core " << cpu_num << ": ";
-      PAPI_perror(NULL);
-      exit(-1);
-    }
-  }
-}
-
-
-void start_counters(const vector<event_info_t>& counters){
-  for(auto& counter : counters){
-    auto retval = PAPI_start(counter.set);
-    if (retval != PAPI_OK) {
-      cerr << "Error: bad PAPI start eventset: ";
-      PAPI_perror(NULL);
-      exit(-1);
-    }
-  }
-}
 
 
 vector<long long> modelPerCoreEnergies(
@@ -635,7 +555,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   ofstream myfile;
   myfile.open(outfilename);
   for(unsigned int i = 0; i < ncores; ++i){
-    myfile << "===THREAD " << i << "\n";
+    myfile << "THREAD " << i << "\n";
     myfile << "Func Name"
            << "\t"
            << "Energy (j)"
@@ -657,7 +577,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
     }
     myfile << endl;
   }
-  myfile << "===GLOBAL\n";
+  myfile << "GLOBAL\n";
   myfile << "Time(s)";
   for(const auto& eventset : global_counters){
     for(const auto& name : eventset.names){
@@ -686,7 +606,7 @@ vector<string> split(istream& stream, char delimeter) {
 }
 
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[], char* envp[]) {
   /*
    * Check params
    */
@@ -711,7 +631,7 @@ int main(int argc, char* argv[]) {
   auto global_event_names = kDefaultGlobalEventnames;
   auto model_fname = kDefaultModelName;
   int param;
-  while((param = getopt(argc, argv, "hp:o:c:g:C:G:m:")) != -1){
+  while((param = getopt(argc, argv, "+hp:o:c:g:C:G:m:")) != -1){
     switch(param){
       case 'p':
         period = stol(optarg);
@@ -780,8 +700,9 @@ int main(int argc, char* argv[]) {
     ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
     raise(SIGSTOP);
     // start up client program
-    execve(argv[optind], &argv[optind], nullptr);
+    execve(argv[optind], &argv[optind], envp);
     cerr << "Error: profilee couldn't start its program!\n";
+    perror(nullptr);
     exit(-1);
   } else { /* error */
     cerr << "Error: couldn't fork audited program.\n";
