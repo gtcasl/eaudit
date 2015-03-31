@@ -51,12 +51,15 @@ const long kMicroToBase = 1e6;
 const long kNanoToBase = 1e9;
 const char* kDefaultOutfile = "eaudit.tsv";
 const vector<string> kDefaultPerCoreEventnames = {
-  "PAPI_TOT_INS",
+  "PAPI_L3_TCM",
+  "PAPI_BR_INS",
   "PAPI_TOT_CYC",
+  "PAPI_TOT_INS",
+  "PAPI_CA_SNP",
+  "PAPI_CA_SHR",
 };
 const vector<string> kDefaultGlobalEventnames = {
   "rapl:::PACKAGE_ENERGY:PACKAGE0",
-  "rapl:::PP0_ENERGY:PACKAGE0",
 };
 const char* kDefaultModelName = "default.model";
 
@@ -513,6 +516,11 @@ void do_profiling(int profilee_pid, const char* profilee_name,
     // Convert stack IDs into function names.
     for (auto& func : core_stats[i]) {
       stringstream cmd;
+      static bool done = false;
+      if(!done){
+        cout << "DEBUG name: " << profilee_name << " val: " << func.first << "\n";
+        done = true;
+      }
       cmd << "addr2line -f -s -C -e " << profilee_name << " " << func.first;
       auto pipe = popen(cmd.str().c_str(), "r");  // call command and read output
       if (!pipe) {
@@ -530,6 +538,12 @@ void do_profiling(int profilee_pid, const char* profilee_name,
       stringstream resultstream{result};
       string line;
       getline(resultstream, line);
+      // NOTE: remove the trailing function annotation that says that this 
+      // function has been used/called by different threads
+      if(line.back() == ']'){
+        auto last_open_bracket_pos = line.find_last_of('[');
+        line.erase(last_open_bracket_pos - 1);
+      }
       print("Reporting function %s\n", line.c_str());
 
       auto stat = find_if(
@@ -554,6 +568,9 @@ void do_profiling(int profilee_pid, const char* profilee_name,
    */
   ofstream myfile;
   myfile.open(outfilename);
+  myfile << "================================================================================\n"
+            "====       Per-thread profile       ============================================\n"
+            "================================================================================\n";
   for(unsigned int i = 0; i < ncores; ++i){
     myfile << "THREAD " << i << "\n";
     myfile << "Func Name"
