@@ -352,7 +352,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   // are two hardware threads per physical core. We have to make sure we only 
   // run the correct number of threads during auditing, since this assumption
   // is made.
-  auto ncores = thread::hardware_concurrency();
+  auto ncores = thread::hardware_concurrency() / 2;
   //auto ncores = 1u;
   core_profiles.resize(ncores);
   core_counters.reserve(ncores);
@@ -470,6 +470,12 @@ void do_profiling(int profilee_pid, const char* profilee_name,
           ptrace(PTRACE_GETREGS, child, nullptr, &regs);
           void* rip = (void*)regs.rip;
           auto child_core = children_cores[child];
+          // TODO This is a hack to avoid attempting to log threads that 
+          // miraculously end up on the second hardware thread of a core.
+          // We try to make sure things are bound appropriately, but there's
+          // no guarantee, so we just ignore things that happen where we don't
+          // want them.
+          if((unsigned)child_core >= ncores) { continue; }
           auto& profile = core_profiles[child_core][rip];
           profile.energy += per_core_energies[child_core];
           profile.time += stats[child_core].time;
@@ -580,9 +586,9 @@ void do_profiling(int profilee_pid, const char* profilee_name,
       gprofile.energy += core_profile.second.energy;
       gprofile.time += core_profile.second.time;
       gprofile.instructions += core_profile.second.instructions;
-      core_sum.energy += gprofile.energy;
-      core_sum.time += gprofile.time;
-      core_sum.instructions += gprofile.instructions;
+      core_sum.energy += core_profile.second.energy;
+      core_sum.time += core_profile.second.time;
+      core_sum.instructions += core_profile.second.instructions;
     }
     per_core_sums.push_back(core_sum);
     total_sums.energy += core_sum.energy;
@@ -687,7 +693,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   myfile << "\t\t"
          << total_sums.energy / kNanoToBase << "\t"
          << total_sums.time / kMicroToBase << "\t"
-         << (double)total_sums.instructions / (total_sums.energy / kNanoToBase) 
+         << (double)total_sums.instructions / (total_sums.energy / kNanoToBase) << "\t"
          << elapsed_time / (double)kMicroToBase << "\n";
 
   myfile.close();
