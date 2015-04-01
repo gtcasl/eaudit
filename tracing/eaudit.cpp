@@ -51,10 +51,10 @@ const long kMicroToBase = 1e6;
 const long kNanoToBase = 1e9;
 const char* kDefaultOutfile = "eaudit.tsv";
 const vector<string> kDefaultPerCoreEventnames = {
+  "PAPI_TOT_INS",
   "PAPI_L3_TCM",
   "PAPI_BR_INS",
   "PAPI_TOT_CYC",
-  "PAPI_TOT_INS",
   "PAPI_CA_SNP",
   "PAPI_CA_SHR",
 };
@@ -322,6 +322,18 @@ vector<long long> modelPerCoreEnergies(
   return results;
 }
 
+struct ProfileValue{
+  double energy;
+  double time;
+  double instructions;
+  ProfileValue() : energy{0}, time{0}, instructions{0} {}
+};
+
+struct ProfileEntry{
+  string name;
+  vector<ProfileValue> values; // one per core
+};
+
 
 void do_profiling(int profilee_pid, const char* profilee_name,
                   const long period, const char* outfilename,
@@ -332,13 +344,13 @@ void do_profiling(int profilee_pid, const char* profilee_name,
    * Structures holding profiling data
    */
   vector<int> children_pids;
-  vector<map<void*, result_stats_t>> core_stats;
+  vector<map<void*, ProfileValue>> core_profiles;
   stats_t global_stats;
   global_stats.counters.resize(global_event_names.size());
   vector<vector<event_info_t>> core_counters;
   auto ncores = thread::hardware_concurrency();
   //auto ncores = 1u;
-  core_stats.resize(ncores);
+  core_profiles.resize(ncores);
   core_counters.reserve(ncores);
 
   /*
@@ -400,6 +412,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   ptrace(PTRACE_SETOPTIONS, profilee_pid, nullptr,
          PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
   ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr); // Allow child to run!
+  auto start_time = PAPI_get_real_usec();
   for (;;) {
     auto wait_res = waitpid(-1, &status, __WALL);
     if(wait_res == -1){ // bad wait!
@@ -453,9 +466,11 @@ void do_profiling(int profilee_pid, const char* profilee_name,
           ptrace(PTRACE_GETREGS, child, nullptr, &regs);
           void* rip = (void*)regs.rip;
           auto child_core = children_cores[child];
-          auto& results = core_stats[child_core][rip];
-          results.per_core_stats += stats[child_core];
-          results.estimated_energy += per_core_energies[child_core];
+          auto& profile = core_profiles[child_core][rip];
+          profile.energy += per_core_energies[child_core];
+          profile.time += stats[child_core].time;
+          //TODO: assume that the first counter value is total instructions
+          profile.instructions += stats[child_core].counters[0];
         }
         
         // resume all children
@@ -505,18 +520,22 @@ void do_profiling(int profilee_pid, const char* profilee_name,
       }
     }
   }
+  auto elapsed_time = PAPI_get_real_usec() - start_time;
 
   /*
    * Done profiling. Convert data to output file.
    */
   print("Finalize profile.\n");
-  vector<vector<pair<string, result_stats_t>>> core_profiles;
+  vector<ProfileEntry> profile;
+  vector<ProfileValue> per_core_sums;
+  ProfileValue total_sums;
+  total_sums.time = elapsed_time;
   for(unsigned int i = 0; i < ncores; ++i){
-    vector<pair<string, result_stats_t> > stats;
     // Convert stack IDs into function names.
-    for (auto& func : core_stats[i]) {
+    ProfileValue core_sum;
+    for (auto& core_profile : core_profiles[i]) {
       stringstream cmd;
-      cmd << "addr2line -f -s -C -e " << profilee_name << " " << func.first;
+      cmd << "addr2line -f -s -C -e " << profilee_name << " " << core_profile.first;
       auto pipe = popen(cmd.str().c_str(), "r");  // call command and read output
       if (!pipe) {
         cerr << "Unable to open pipe to call addr2line.\n";
@@ -543,21 +562,27 @@ void do_profiling(int profilee_pid, const char* profilee_name,
       string entry_name = func_name + " at " + file_name;
       print("Reporting function %s\n", entry_name.c_str());
 
-      auto stat = find_if(
-          begin(stats), end(stats),
-          [&](const pair<string, result_stats_t>& obj) { return obj.first == entry_name; });
-      if (stat == end(stats)) {
-        stats.emplace_back(entry_name, func.second);
-      } else {
-        stat->second += func.second;
+      auto gprofile_iter =
+          find_if(begin(profile), end(profile),
+                  [&](const ProfileEntry& e) { return e.name == entry_name; });
+      if(gprofile_iter == end(profile)){
+        ProfileEntry entry;
+        entry.name = entry_name;
+        entry.values.resize(ncores);
+        profile.push_back(entry);
+        gprofile_iter = end(profile) - 1;
       }
+      auto& gprofile = gprofile_iter->values[i];
+      gprofile.energy += core_profile.second.energy;
+      gprofile.time += core_profile.second.time;
+      gprofile.instructions += core_profile.second.instructions;
+      core_sum.energy += gprofile.energy;
+      core_sum.time += gprofile.time;
+      core_sum.instructions += gprofile.instructions;
     }
-
-    stable_sort(stats.begin(), stats.end(), [](const pair<string, result_stats_t>& a,
-                                               const pair<string, result_stats_t>& b) {
-      return a.second.estimated_energy > b.second.estimated_energy;
-    });
-    core_profiles.push_back(stats);
+    per_core_sums.push_back(core_sum);
+    total_sums.energy += core_sum.energy;
+    total_sums.instructions += core_sum.instructions;
   }
 
   /*
@@ -570,41 +595,37 @@ void do_profiling(int profilee_pid, const char* profilee_name,
             "================================================================================\n";
   for(unsigned int i = 0; i < ncores; ++i){
     myfile << "THREAD " << i << "\n";
-    myfile << "Func Name"
-           << "\t"
-           << "Energy (j)"
-           << "\t"
-           << "Time(s)";
-    for(const auto& eventset : core_counters[i]){
-      for(const auto& name : eventset.names){
-        myfile << "\t" << name;
-      }
-    }
-    myfile << endl;
+    myfile << "Func Name\tTotal Energy(j)\tTotal Time(s)\tEnergy Efficiency(Inst/joule)\t% Core Energy\t% Core Time\t% Tot Energy\t% Tot Time\n";
 
-    for (auto& func : core_profiles[i]) {
-      myfile << func.first << "\t" << func.second.estimated_energy / (double)kNanoToBase << "\t" << func.second.per_core_stats.time / (double)kMicroToBase;
-      for(const auto& counter : func.second.per_core_stats.counters){
-        myfile << "\t" << counter;
-      }
+    // sort the profile by decending energy for this core
+    sort(begin(profile), end(profile),
+         [&](const ProfileEntry& a, const ProfileEntry& b) {
+           return a.values[i].energy > b.values[i].energy;
+         });
+    for(auto& entry : profile) {
+      /* don't print functions we never execute */
+      if(entry.values[i].energy == 0){ continue; }
+      auto energy = entry.values[i].energy / kNanoToBase;
+      auto time = entry.values[i].time / kMicroToBase;
+      auto instructions = entry.values[i].instructions;
+      myfile << entry.name << "\t" 
+             << energy << "\t" 
+             << time << "\t"
+             << instructions / energy << "\t"
+             << energy / (per_core_sums[i].energy / kNanoToBase) * 100 << "\t"
+             << time / (per_core_sums[i].time / kMicroToBase) * 100 << "\t"
+             << energy / (total_sums.energy / kNanoToBase) * 100 << "\t"
+             << time / (total_sums.time / kMicroToBase) * 100 << "\n";
       myfile << endl;
     }
     myfile << endl;
   }
   myfile << "GLOBAL\n";
-  myfile << "Time(s)";
-  for(const auto& eventset : global_counters){
-    for(const auto& name : eventset.names){
-      myfile << "\t" << name << " (j)";
-    }
-  }
-  myfile << endl;
-  myfile << global_stats.time / (double)kMicroToBase;
-  for(const auto& counter : global_stats.counters){
-    // TODO: assume that one tick of the counter is one nano-unit (ie joules)
-    myfile << "\t" << counter / (double)kNanoToBase;
-  }
-  myfile << endl;
+  myfile << "\t\tTotal Energy(j)\tTotal Time(s)\tEnergy Efficiency(Inst/joule)\n";
+  myfile << "\t\t"
+         << total_sums.energy / kNanoToBase << "\t"
+         << total_sums.time / kMicroToBase << "\t"
+         << total_sums.instructions / (total_sums.energy / kNanoToBase) << "\n";
 
   myfile.close();
 }
