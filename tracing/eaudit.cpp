@@ -348,6 +348,10 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   stats_t global_stats;
   global_stats.counters.resize(global_event_names.size());
   vector<vector<event_info_t>> core_counters;
+  // TODO: assumption here is that hyperthreading is turned on, and that there
+  // are two hardware threads per physical core. We have to make sure we only 
+  // run the correct number of threads during auditing, since this assumption
+  // is made.
   auto ncores = thread::hardware_concurrency();
   //auto ncores = 1u;
   core_profiles.resize(ncores);
@@ -529,7 +533,6 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   vector<ProfileEntry> profile;
   vector<ProfileValue> per_core_sums;
   ProfileValue total_sums;
-  total_sums.time = elapsed_time;
   for(unsigned int i = 0; i < ncores; ++i){
     // Convert stack IDs into function names.
     ProfileValue core_sum;
@@ -559,6 +562,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
         auto last_open_bracket_pos = func_name.find_last_of('[');
         func_name.erase(last_open_bracket_pos - 1);
       }
+      file_name.erase(file_name.find(':'));
       string entry_name = func_name + " at " + file_name;
       print("Reporting function %s\n", entry_name.c_str());
 
@@ -582,6 +586,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
     }
     per_core_sums.push_back(core_sum);
     total_sums.energy += core_sum.energy;
+    total_sums.time += core_sum.time;
     total_sums.instructions += core_sum.instructions;
   }
 
@@ -590,12 +595,70 @@ void do_profiling(int profilee_pid, const char* profilee_name,
    */
   ofstream myfile;
   myfile.open(outfilename);
-  myfile << "================================================================================\n"
-            "====       Per-thread profile       ============================================\n"
-            "================================================================================\n";
+  myfile << "----------------------------------------\n"
+            "----       Per-function profile     ----\n"
+            "----------------------------------------\n";
+  myfile << "\t\t\t\t";
+  for(unsigned i = 0; i < ncores; ++i){
+    myfile << "Core " << i << "\t\t\t\t\t\t";
+  }
+  myfile << "\nFunc Name\tTotal Energy(j)\tTotal Time(s)\tTotal Energy Efficiency(inst/joule)\t";
+  for(unsigned i = 0; i < ncores; ++i){
+    myfile << "Energy(j)\tTime(s)\tEnergy Efficiency(inst/joule)\t% of Total Function Energy\t%of Total Function Time\t% difference in Energy Efficiency\t";
+  }
+  myfile << "\n";
+  sort(begin(profile), end(profile),
+       [&](const ProfileEntry& a, const ProfileEntry& b){
+         auto a_sum = accumulate(begin(a.values), end(a.values), double{0},
+                                 [](double acc, const ProfileValue& b){
+                                   return acc + b.energy;
+                                 });
+         auto b_sum = accumulate(begin(b.values), end(b.values), double{0},
+                                 [](double acc, const ProfileValue& b){
+                                   return acc + b.energy;
+                                 });
+         return a_sum > b_sum;
+       });
+  for(auto& entry : profile){
+    auto profile_sum = accumulate(begin(entry.values), end(entry.values), ProfileValue{},
+                                  [](ProfileValue& acc, const ProfileValue& e){
+                                    acc.energy += e.energy;
+                                    acc.time += e.time;
+                                    acc.instructions += e.instructions;
+                                    return acc;
+                                  });
+    auto profile_energy_eff =
+        profile_sum.energy == 0
+            ? double{0}
+            : profile_sum.instructions / (profile_sum.energy / kNanoToBase);
+    myfile << entry.name << "\t"
+           << profile_sum.energy / kNanoToBase << "\t"
+           << profile_sum.time / kMicroToBase << "\t"
+           << profile_energy_eff << "\t";
+    for(unsigned i = 0; i < ncores; ++i){
+      auto energy = entry.values[i].energy / kNanoToBase;
+      auto time = entry.values[i].time / kMicroToBase;
+      auto energy_eff =
+          energy == 0 ? double{0} : entry.values[i].instructions / energy;
+      myfile << energy << "\t"
+             << time << "\t"
+             << energy_eff << "\t"
+             << energy / (profile_sum.energy / kNanoToBase) * 100 << "\t"
+             << time / (profile_sum.time / kMicroToBase) * 100 << "\t"
+             << (energy_eff == 0 ? double{0} : fabs((energy_eff - profile_energy_eff) /
+                                                    ((energy_eff + profile_energy_eff) / 2)) * 100)
+             << "\t";
+    }
+    myfile << "\n";
+  }
+  myfile << "\n";
+
+  myfile << "----------------------------------------\n"
+            "----       Per-thread profile       ----\n"
+            "----------------------------------------\n";
   for(unsigned int i = 0; i < ncores; ++i){
     myfile << "THREAD " << i << "\n";
-    myfile << "Func Name\tTotal Energy(j)\tTotal Time(s)\tEnergy Efficiency(Inst/joule)\t% Core Energy\t% Core Time\t% Tot Energy\t% Tot Time\n";
+    myfile << "Func Name\tTotal Energy(j)\tTotal Time(s)\tEnergy Efficiency(inst/joule)\t% Core Energy\t% Core Time\t% Tot Energy\t% Tot Time\n";
 
     // sort the profile by decending energy for this core
     sort(begin(profile), end(profile),
@@ -607,7 +670,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
       if(entry.values[i].energy == 0){ continue; }
       auto energy = entry.values[i].energy / kNanoToBase;
       auto time = entry.values[i].time / kMicroToBase;
-      auto instructions = entry.values[i].instructions;
+      auto instructions = double{entry.values[i].instructions};
       myfile << entry.name << "\t" 
              << energy << "\t" 
              << time << "\t"
@@ -616,16 +679,16 @@ void do_profiling(int profilee_pid, const char* profilee_name,
              << time / (per_core_sums[i].time / kMicroToBase) * 100 << "\t"
              << energy / (total_sums.energy / kNanoToBase) * 100 << "\t"
              << time / (total_sums.time / kMicroToBase) * 100 << "\n";
-      myfile << endl;
     }
-    myfile << endl;
+    myfile << "\n";
   }
   myfile << "GLOBAL\n";
-  myfile << "\t\tTotal Energy(j)\tTotal Time(s)\tEnergy Efficiency(Inst/joule)\n";
+  myfile << "\t\tTotal Energy(j)\tTotal Time(s)\tEnergy Efficiency(inst/joule)\tElapsed Time(s)\n";
   myfile << "\t\t"
          << total_sums.energy / kNanoToBase << "\t"
          << total_sums.time / kMicroToBase << "\t"
-         << total_sums.instructions / (total_sums.energy / kNanoToBase) << "\n";
+         << (double)total_sums.instructions / (total_sums.energy / kNanoToBase) 
+         << elapsed_time / (double)kMicroToBase << "\n";
 
   myfile.close();
 }
