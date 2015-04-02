@@ -339,9 +339,18 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   /*
    * Initialize PAPI measurement of all cores
    */
+  int inst_counter_idx = 0;
   for(unsigned int i = 0; i < ncores; ++i){
     print("Creating per-core counters on core %d\n", i);
-    core_counters.emplace_back(init_papi_counters(model.input_metrics_));
+    auto per_core_counter_names = model.input_metrics_;
+    auto inst_iter = find(begin(per_core_counter_names), end(per_core_counter_names), "PAPI_TOT_INS");  
+    if(inst_iter == end(per_core_counter_names)){
+      inst_counter_idx = per_core_counter_names.size();
+      per_core_counter_names.push_back("PAPI_TOT_INS");
+    } else {
+      inst_counter_idx = distance(begin(per_core_counter_names), inst_iter);
+    }
+    core_counters.emplace_back(init_papi_counters(per_core_counter_names));
     auto& counters = core_counters[i];
     attach_counters_to_core(counters, i);
     start_counters(counters);
@@ -447,8 +456,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
           auto& profile = core_profiles[child_core][rip];
           profile.energy += per_core_energies[child_core];
           profile.time += stats[child_core].time;
-          //TODO: assume that the first counter value is total instructions
-          profile.instructions += stats[child_core].counters[0];
+          profile.instructions += stats[child_core].counters[inst_counter_idx];
         }
         
         // resume all children
