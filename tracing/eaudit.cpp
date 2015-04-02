@@ -52,7 +52,6 @@ const long kNanoToBase = 1e9;
 const char* kDefaultOutfile = "eaudit.tsv";
 const string kEnergyEventName = "rapl:::PACKAGE_ENERGY:PACKAGE0";
 const char* kDefaultModelName = "default.model";
-const int kCoreAssigmentPeriod = 1000;
 
 
 struct stats_t {
@@ -396,7 +395,11 @@ void do_profiling(int profilee_pid, const char* profilee_name,
          PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
   ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr); // Allow child to run!
   map<int, int> children_cores;
-  int ticks_since_core_assignment = 0;
+  // We only want to match child PIDs to processors infrequently, since it 
+  // requires a filesystem read. The assumption here is that threads are bound
+  // to cores, and only get created at the beginning of the function
+  // 50 is a magic number derived by running some apps a bunch of times.
+  int core_assignments_left = 50;
   auto start_time = PAPI_get_real_usec();
   for (;;) {
     auto wait_res = waitpid(-1, &status, __WALL);
@@ -412,7 +415,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
           kill(child, SIGSTOP);
         }
 
-        if(ticks_since_core_assignment-- == 0){
+        if(core_assignments_left != 0){
           // find last executing core ID for each child
           for(const auto& child : children_pids){
             stringstream proc_fname;
@@ -429,7 +432,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
             }
             children_cores[child] = stoi(line);
           }
-          ticks_since_core_assignment = kCoreAssigmentPeriod;
+          core_assignments_left--;
         }
         
         // collect stats from cores
