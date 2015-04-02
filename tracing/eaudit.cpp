@@ -394,7 +394,6 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   ptrace(PTRACE_SETOPTIONS, profilee_pid, nullptr,
          PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
   ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr); // Allow child to run!
-  map<int, int> children_cores;
   auto start_time = PAPI_get_real_usec();
   for (;;) {
     auto wait_res = waitpid(-1, &status, __WALL);
@@ -410,6 +409,24 @@ void do_profiling(int profilee_pid, const char* profilee_name,
           kill(child, SIGSTOP);
         }
 
+        // find last executing core ID for each child
+        map<int, int> children_cores;
+        for(const auto& child : children_pids){
+          stringstream proc_fname;
+          proc_fname << "/proc/" << child << "/stat";
+          ifstream procfile(proc_fname.str());
+          if(!procfile.is_open()){
+            cerr << "Error: couldn't open proc file!\n";
+            exit(-1);
+          }
+          string line;
+          // ignore the first kProcStatIdx lines
+          for(unsigned int i = 0; i < kProcStatIdx; ++i){
+            getline(procfile, line, ' ');
+          }
+          children_cores[child] = stoi(line);
+        }
+        
         // collect stats from cores
         print("EAUDIT collating stats\n");
         // read all rapl counters
@@ -430,22 +447,6 @@ void do_profiling(int profilee_pid, const char* profilee_name,
           struct user_regs_struct regs;
           ptrace(PTRACE_GETREGS, child, nullptr, &regs);
           void* rip = (void*)regs.rip;
-          if(children_cores.find(child) == end(children_cores)){
-            stringstream proc_fname;
-            proc_fname << "/proc/" << child << "/stat";
-            ifstream procfile(proc_fname.str());
-            if(!procfile.is_open()){
-              cerr << "Error: couldn't open proc file!\n";
-              exit(-1);
-            }
-            string line;
-            // ignore the first kProcStatIdx lines
-            for(unsigned int i = 0; i < kProcStatIdx - 1; ++i){
-              procfile.ignore(numeric_limits<streamsize>::max(), ' ');
-            }
-            getline(procfile, line, ' ');
-            children_cores[child] = stoi(line);
-          }
           auto child_core = children_cores[child];
           // TODO This is a hack to avoid attempting to log threads that 
           // miraculously end up on the second hardware thread of a core.
