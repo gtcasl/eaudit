@@ -536,6 +536,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
    * Done profiling. Convert data to output file.
    */
   print("Finalize profile.\n");
+  auto profile_start_time = PAPI_get_real_usec();
   vector<ProfileEntry> profile;
   vector<ProfileValue> per_core_sums;
   ProfileValue total_sums;
@@ -697,6 +698,8 @@ void do_profiling(int profilee_pid, const char* profilee_name,
          << elapsed_time / (double)kMicroToBase << "\n";
 
   myfile.close();
+  auto profile_elapsed = PAPI_get_real_usec() - profile_start_time;
+  cout << "Profile creation time: " << profile_elapsed / (double) kMicroToBase << " seconds\n";
 }
 
 
