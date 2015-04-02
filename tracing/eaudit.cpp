@@ -50,17 +50,7 @@ const long kDefaultSamplePeriodUsecs = 1000;
 const long kMicroToBase = 1e6;
 const long kNanoToBase = 1e9;
 const char* kDefaultOutfile = "eaudit.tsv";
-const vector<string> kDefaultPerCoreEventnames = {
-  "PAPI_TOT_INS",
-  "PAPI_L3_TCM",
-  "PAPI_BR_INS",
-  "PAPI_TOT_CYC",
-  "PAPI_CA_SNP",
-  "PAPI_CA_SHR",
-};
-const vector<string> kDefaultGlobalEventnames = {
-  "rapl:::PACKAGE_ENERGY:PACKAGE0",
-};
+const string kEnergyEventName = "rapl:::PACKAGE_ENERGY:PACKAGE0";
 const char* kDefaultModelName = "default.model";
 
 
@@ -199,30 +189,11 @@ struct Model {
     }
   }
 
-  double poll(const vector<string>& names, const vector<long long>& values) const {
+  double poll(const vector<long long>& values) const {
     ublas::vector<double> v = ublas::vector<double>(input_metrics_.size());
 
-    vector<string> missing;
-
-    int i = 0;
-    for(const auto& input_metric : input_metrics_){
-      auto param = find(begin(names), end(names), input_metric);
-      if(param != end(names)){
-        v(i) = values[distance(begin(names), param)];
-      } else {
-        missing.push_back(input_metric);
-      }
-      ++i;
-    }
-
-    if(missing.size() > 0) {
-      stringstream ss;
-      cerr << "eigermodel: missing input parameters to model \"" << model_fname_ <<
-         "\":\n";
-      for(const auto& elem : missing){
-        cerr << "-->\t" << elem << "\n";
-      }
-      exit(-1);
+    for(unsigned i = 0; i < v.size(); ++i){
+        v[i] = values[i];
     }
 
     ublas::vector<double> inputs;
@@ -241,7 +212,7 @@ struct Model {
     }
     ublas::vector<double> function_vals =
       ublas::vector<double>(models_[closest].regressors_.size());
-    i = 0;
+    int i = 0;
     for(auto it =
           begin(models_[closest].regressors_);
         it != end(models_[closest].regressors_); ++it, ++i) {
@@ -305,15 +276,15 @@ stats_t read_rapl(const vector<event_info_t>& eventsets, long period){
 
 
 
-vector<long long> modelPerCoreEnergies(
-    const Model& model, const vector<string>& per_core_event_names,
-    const vector<stats_t>& core_stats, long long total_energy) {
+vector<long long> modelPerCoreEnergies(const Model& model,
+                                       const vector<stats_t>& core_stats,
+                                       long long total_energy) {
   vector<long long> results(core_stats.size());
   //double poll(map<string, double> params) const {
   vector<double> model_vals;
   model_vals.reserve(core_stats.size());
   for(const auto& core_stat : core_stats){
-    model_vals.push_back(model.poll(per_core_event_names, core_stat.counters));
+    model_vals.push_back(model.poll(core_stat.counters));
   }
   double total = accumulate(begin(model_vals), end(model_vals), double{0});
   for(unsigned i = 0; i < results.size(); ++i){
@@ -337,8 +308,6 @@ struct ProfileEntry{
 
 void do_profiling(int profilee_pid, const char* profilee_name,
                   const long period, const char* outfilename,
-                  const vector<string>& per_core_event_names,
-                  const vector<string>& global_event_names,
                   const Model& model) {
   /*
    * Structures holding profiling data
@@ -346,7 +315,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   vector<int> children_pids;
   vector<map<void*, ProfileValue>> core_profiles;
   stats_t global_stats;
-  global_stats.counters.resize(global_event_names.size());
+  global_stats.counters.resize(1);
   vector<vector<event_info_t>> core_counters;
   // TODO: assumption here is that hyperthreading is turned on, and that there
   // are two hardware threads per physical core. We have to make sure we only 
@@ -372,13 +341,13 @@ void do_profiling(int profilee_pid, const char* profilee_name,
    */
   for(unsigned int i = 0; i < ncores; ++i){
     print("Creating per-core counters on core %d\n", i);
-    core_counters.emplace_back(init_papi_counters(per_core_event_names));
+    core_counters.emplace_back(init_papi_counters(model.input_metrics_));
     auto& counters = core_counters[i];
     attach_counters_to_core(counters, i);
     start_counters(counters);
   }
   print("Creating global counters.\n");
-  auto global_counters = init_papi_counters(global_event_names);
+  auto global_counters = init_papi_counters(vector<string>{kEnergyEventName});
   start_counters(global_counters);
 
   /*
@@ -445,7 +414,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
         // TODO: poll model and update per-core counts appropriately
         // TODO: cur_global_stats[0] is hardwired as the total energy to be modeled
         auto per_core_energies = modelPerCoreEnergies(
-            model, per_core_event_names, stats, cur_global_stats.counters[0]);
+            model, stats, cur_global_stats.counters[0]);
 
         // read all the children registers
         for(const auto& child : children_pids){
@@ -724,50 +693,20 @@ int main(int argc, char* argv[], char* envp[]) {
     " -h                  Show this help\n"
     " -p <microseconds>   Sample period in microseconds, default 1000\n"
     " -o <filename>       File to write profile, default eaudit.tsv\n"
-    " -c <names>          Use comma-separated list <names> for per-core counters\n"
-    " -g <names>          Use comma-separated list <names> for global counters\n"
-    " -C <filename>       Read line-separated list of per-core counter names from file\n"
-    " -G <filename>       Read line-separated list of global counter names from file\n"
     " -m <filename>       Model file name, default 'default.model'\n"
     "\n";
 
   auto period = kDefaultSamplePeriodUsecs;
   auto outfile = kDefaultOutfile;
-  auto per_core_event_names = kDefaultPerCoreEventnames;
-  auto global_event_names = kDefaultGlobalEventnames;
   auto model_fname = kDefaultModelName;
   int param;
-  while((param = getopt(argc, argv, "+hp:o:c:g:C:G:m:")) != -1){
+  while((param = getopt(argc, argv, "+hp:o:m:")) != -1){
     switch(param){
       case 'p':
         period = stol(optarg);
         break;
       case 'o':
         outfile = optarg;
-        break;
-      case 'c':
-        {
-          istringstream stream{optarg};
-          per_core_event_names = split(stream, ',');
-        }
-        break;
-      case 'C':
-        {
-          ifstream stream{optarg};
-          per_core_event_names = split(stream, '\n');
-        }
-        break;
-      case 'g':
-        {
-          istringstream stream{optarg};
-          global_event_names = split(stream, ',');
-        }
-        break;
-      case 'G':
-        {
-          ifstream stream{optarg};
-          global_event_names = split(stream, '\n');
-        }
         break;
       case 'm':
         {
@@ -799,8 +738,7 @@ int main(int argc, char* argv[], char* envp[]) {
     // Let's do this.
     ptrace(PTRACE_SETOPTIONS, profilee, nullptr,
            PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
-    do_profiling(profilee, argv[optind], period, outfile, per_core_event_names,
-                 global_event_names, model);
+    do_profiling(profilee, argv[optind], period, outfile, model);
   } else if(profilee == 0){ /* profilee */
     // prepare for tracing
     ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
