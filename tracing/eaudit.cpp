@@ -52,7 +52,7 @@ const long kNanoToBase = 1e9;
 const char* kDefaultOutfile = "eaudit.tsv";
 const string kEnergyEventName = "rapl:::PACKAGE_ENERGY:PACKAGE0";
 const char* kDefaultModelName = "default.model";
-
+const int kTotalCoreAssignments = 5;
 
 struct stats_t {
   long time; // in microseconds
@@ -394,12 +394,13 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   ptrace(PTRACE_SETOPTIONS, profilee_pid, nullptr,
          PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
   ptrace(PTRACE_CONT, profilee_pid, nullptr, nullptr); // Allow child to run!
-  map<int, int> children_cores;
+  using core_id_t = int;
+  using assignments_left_t = int;
+  map<int, pair<core_id_t, assignments_left_t>> children_cores;
   // We only want to match child PIDs to processors infrequently, since it 
   // requires a filesystem read. The assumption here is that threads are bound
   // to cores, and only get created at the beginning of the function
   // 50 is a magic number derived by running some apps a bunch of times.
-  int core_assignments_left = 50;
   auto start_time = PAPI_get_real_usec();
   for (;;) {
     auto wait_res = waitpid(-1, &status, __WALL);
@@ -415,9 +416,16 @@ void do_profiling(int profilee_pid, const char* profilee_name,
           kill(child, SIGSTOP);
         }
 
-        if(core_assignments_left != 0){
-          // find last executing core ID for each child
-          for(const auto& child : children_pids){
+        // find last executing core ID for each child
+        for(const auto& child : children_pids){
+          auto core_iter = children_cores.find(child);
+          if(core_iter == end(children_cores)){
+            auto& elem = children_cores[child];
+            elem.second = kTotalCoreAssignments;
+            core_iter = children_cores.find(child);
+          }
+          if(core_iter->second.second > 0){
+            core_iter->second.second--;
             stringstream proc_fname;
             proc_fname << "/proc/" << child << "/stat";
             ifstream procfile(proc_fname.str());
@@ -430,9 +438,8 @@ void do_profiling(int profilee_pid, const char* profilee_name,
             for(unsigned int i = 0; i < kProcStatIdx; ++i){
               getline(procfile, line, ' ');
             }
-            children_cores[child] = stoi(line);
+            core_iter->second.first = stoi(line);
           }
-          core_assignments_left--;
         }
         
         // collect stats from cores
@@ -455,7 +462,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
           struct user_regs_struct regs;
           ptrace(PTRACE_GETREGS, child, nullptr, &regs);
           void* rip = (void*)regs.rip;
-          auto child_core = children_cores[child];
+          auto child_core = children_cores[child].first;
           // TODO This is a hack to avoid attempting to log threads that 
           // miraculously end up on the second hardware thread of a core.
           // We try to make sure things are bound appropriately, but there's
