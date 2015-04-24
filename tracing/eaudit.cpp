@@ -49,7 +49,7 @@ const unsigned kProcStatIdx = 39;
 const long kDefaultSamplePeriodUsecs = 1000;
 const long kMicroToBase = 1e6;
 const long kNanoToBase = 1e9;
-const char* kDefaultOutfile = "eaudit.tsv";
+const char* kDefaultPrefix = "eaudit";
 const string kEnergyEventName = "rapl:::PACKAGE_ENERGY:PACKAGE0";
 const char* kDefaultModelName = "default.model";
 const int kTotalCoreAssignments = 5;
@@ -302,12 +302,12 @@ struct ProfileValue{
 
 struct ProfileEntry{
   string name;
-  vector<ProfileValue> values; // one per core
+  double energy, time, instructions;
 };
 
 
 void do_profiling(int profilee_pid, const char* profilee_name,
-                  const long period, const char* outfilename,
+                  const long period, const char* prefix,
                   const Model& model) {
   /*
    * Structures holding profiling data
@@ -529,12 +529,9 @@ void do_profiling(int profilee_pid, const char* profilee_name,
    */
   print("Finalize profile.\n");
   auto profile_start_time = PAPI_get_real_usec();
-  vector<ProfileEntry> profile;
-  vector<ProfileValue> per_core_sums;
-  ProfileValue total_sums;
   for(unsigned int i = 0; i < ncores; ++i){
+    vector<ProfileEntry> profile;
     // Convert stack IDs into function names.
-    ProfileValue core_sum;
     for (auto& core_profile : core_profiles[i]) {
       stringstream cmd;
       cmd << "addr2line -f -s -C -e " << profilee_name << " " << core_profile.first;
@@ -565,143 +562,44 @@ void do_profiling(int profilee_pid, const char* profilee_name,
       string entry_name = func_name + " at " + file_name;
       print("Reporting function %s\n", entry_name.c_str());
 
-      auto gprofile_iter =
+      auto profile_iter =
           find_if(begin(profile), end(profile),
                   [&](const ProfileEntry& e) { return e.name == entry_name; });
-      if(gprofile_iter == end(profile)){
+      if(profile_iter == end(profile)){
         ProfileEntry entry;
         entry.name = entry_name;
-        entry.values.resize(ncores);
         profile.push_back(entry);
-        gprofile_iter = end(profile) - 1;
+        profile_iter = end(profile) - 1;
       }
-      auto& gprofile = gprofile_iter->values[i];
-      gprofile.energy += core_profile.second.energy;
-      gprofile.time += core_profile.second.time;
-      gprofile.instructions += core_profile.second.instructions;
-      core_sum.energy += core_profile.second.energy;
-      core_sum.time += core_profile.second.time;
-      core_sum.instructions += core_profile.second.instructions;
+      profile_iter->energy += core_profile.second.energy;
+      profile_iter->time += core_profile.second.time;
+      profile_iter->instructions += core_profile.second.instructions;
     }
-    per_core_sums.push_back(core_sum);
-    total_sums.energy += core_sum.energy;
-    total_sums.time += core_sum.time;
-    total_sums.instructions += core_sum.instructions;
-  }
-
-  /*
-   * Write profile to file
-   */
-  ofstream myfile;
-  myfile.open(outfilename);
-  myfile << "----------------------------------------\n"
-            "----       Per-function profile     ----\n"
-            "----------------------------------------\n";
-  myfile << "\t\t\t\t";
-  for(unsigned i = 0; i < ncores; ++i){
-    myfile << "Core " << i << "\t\t\t\t\t\t";
-  }
-  myfile << "\nFunc Name\tTotal Energy(j)\tTotal Time(s)\tTotal Energy Efficiency(inst/joule)\t";
-  for(unsigned i = 0; i < ncores; ++i){
-    myfile << "Energy(j)\tTime(s)\tEnergy Efficiency(inst/joule)\t% of Total Function Energy\t%of Total Function Time\t% difference in Energy Efficiency\t";
-  }
-  myfile << "\n";
-  sort(begin(profile), end(profile),
-       [&](const ProfileEntry& a, const ProfileEntry& b){
-         auto a_sum = accumulate(begin(a.values), end(a.values), double{0},
-                                 [](double acc, const ProfileValue& b){
-                                   return acc + b.energy;
-                                 });
-         auto b_sum = accumulate(begin(b.values), end(b.values), double{0},
-                                 [](double acc, const ProfileValue& b){
-                                   return acc + b.energy;
-                                 });
-         return a_sum > b_sum;
-       });
-  for(auto& entry : profile){
-    auto profile_sum = accumulate(begin(entry.values), end(entry.values), ProfileValue{},
-                                  [](ProfileValue& acc, const ProfileValue& e){
-                                    acc.energy += e.energy;
-                                    acc.time += e.time;
-                                    acc.instructions += e.instructions;
-                                    return acc;
-                                  });
-    auto profile_energy_eff =
-        profile_sum.energy == 0
-            ? double{0}
-            : profile_sum.instructions / (profile_sum.energy / kNanoToBase);
-    myfile << entry.name << "\t"
-           << profile_sum.energy / kNanoToBase << "\t"
-           << profile_sum.time / kMicroToBase << "\t"
-           << profile_energy_eff << "\t";
-    for(unsigned i = 0; i < ncores; ++i){
-      auto energy = entry.values[i].energy / kNanoToBase;
-      auto time = entry.values[i].time / kMicroToBase;
-      auto energy_eff =
-          energy == 0 ? double{0} : entry.values[i].instructions / energy;
-      myfile << energy << "\t"
-             << time << "\t"
-             << energy_eff << "\t"
-             << energy / (profile_sum.energy / kNanoToBase) * 100 << "\t"
-             << time / (profile_sum.time / kMicroToBase) * 100 << "\t"
-             << (energy_eff == 0 ? double{0} : fabs((energy_eff - profile_energy_eff) /
-                                                    ((energy_eff + profile_energy_eff) / 2)) * 100)
-             << "\t";
-    }
-    myfile << "\n";
-  }
-  myfile << "\n";
-
-  myfile << "----------------------------------------\n"
-            "----       Per-thread profile       ----\n"
-            "----------------------------------------\n";
-  for(unsigned int i = 0; i < ncores; ++i){
-    myfile << "THREAD " << i << "\n";
-    myfile << "Func Name\tTotal Energy(j)\tTotal Time(s)\tEnergy Efficiency(inst/joule)\t% Core Energy\t% Core Time\t% Tot Energy\t% Tot Time\n";
-
-    // sort the profile by decending energy for this core
     sort(begin(profile), end(profile),
          [&](const ProfileEntry& a, const ProfileEntry& b) {
-           return a.values[i].energy > b.values[i].energy;
+           return a.energy > b.energy;
          });
-    for(auto& entry : profile) {
-      /* don't print functions we never execute */
-      if(entry.values[i].energy == 0){ continue; }
-      auto energy = entry.values[i].energy / kNanoToBase;
-      auto time = entry.values[i].time / kMicroToBase;
-      auto instructions = double{entry.values[i].instructions};
-      myfile << entry.name << "\t" 
-             << energy << "\t" 
-             << time << "\t"
-             << instructions / energy << "\t"
-             << energy / (per_core_sums[i].energy / kNanoToBase) * 100 << "\t"
-             << time / (per_core_sums[i].time / kMicroToBase) * 100 << "\t"
-             << energy / (total_sums.energy / kNanoToBase) * 100 << "\t"
-             << time / (total_sums.time / kMicroToBase) * 100 << "\n";
+
+    /*
+     * Write profile to file
+     */
+    stringstream namestream;
+    namestream << prefix << "." << i << ".tsv";
+    ofstream outfile{namestream.str()};
+    outfile << "Name\tEnergy\tTime\tInstructions\n";
+    for(const auto& elem : profile){
+      outfile << elem.name << "\t"
+              << elem.energy / kNanoToBase << "\t"
+              << elem.time / kMicroToBase << "\t"
+              << elem.instructions << "\n";
     }
-    myfile << "\n";
   }
-  myfile << "GLOBAL\n";
-  myfile << "\t\tTotal Energy(j)\tTotal Time(s)\tEnergy Efficiency(inst/joule)\tElapsed Time(s)\n";
-  myfile << "\t\t"
-         << total_sums.energy / kNanoToBase << "\t"
-         << total_sums.time / kMicroToBase << "\t"
-         << (double)total_sums.instructions / (total_sums.energy / kNanoToBase) << "\t"
-         << elapsed_time / (double)kMicroToBase << "\n";
 
-  myfile.close();
+  cout << "Total Energy:\t" << global_stats.counters[0] / (double)kNanoToBase << " joules\n"
+       << "Elapsed Time:\t" << elapsed_time / (double)kMicroToBase << " seconds\n";
+
   auto profile_elapsed = PAPI_get_real_usec() - profile_start_time;
-  cout << "Profile creation time: " << profile_elapsed / (double) kMicroToBase << " seconds\n";
-}
-
-
-vector<string> split(istream& stream, char delimeter) {
-  string line;
-  vector<string> names;
-  while (getline(stream, line, delimeter)) {
-    names.emplace_back(line);
-  }
-  return names;
+  cout << "Profile creation time:\t" << profile_elapsed / (double) kMicroToBase << " seconds\n";
 }
 
 
@@ -716,13 +614,13 @@ int main(int argc, char* argv[], char* envp[]) {
     "Options:\n"
     " -h                  Show this help\n"
     " -p <microseconds>   Sample period in microseconds, default 1000\n"
-    " -o <filename>       File to write profile, default eaudit.tsv\n"
+    " -o <prefix>         Prefix to use when writing files, default eaudit\n"
     " -m <filename>       Model file name, default 'default.model'\n"
     "\n";
 
   auto period = kDefaultSamplePeriodUsecs;
-  auto outfile = kDefaultOutfile;
   auto model_fname = kDefaultModelName;
+  auto prefix = kDefaultPrefix;
   int param;
   while((param = getopt(argc, argv, "+hp:o:m:")) != -1){
     switch(param){
@@ -730,7 +628,7 @@ int main(int argc, char* argv[], char* envp[]) {
         period = stol(optarg);
         break;
       case 'o':
-        outfile = optarg;
+        prefix = optarg;
         break;
       case 'm':
         {
@@ -762,7 +660,7 @@ int main(int argc, char* argv[], char* envp[]) {
     // Let's do this.
     ptrace(PTRACE_SETOPTIONS, profilee, nullptr,
            PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
-    do_profiling(profilee, argv[optind], period, outfile, model);
+    do_profiling(profilee, argv[optind], period, prefix, model);
   } else if(profilee == 0){ /* profilee */
     // prepare for tracing
     ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
