@@ -1,6 +1,10 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <iostream>
+#include <algorithm>
+
+#include "papi.h"
 
 namespace papi{
 struct event_info_t{
@@ -41,13 +45,13 @@ std::vector<event_info_t> init_papi_counters(
 
   for (auto& event : eventsets) {
     int eventset = PAPI_NULL;
-    PAPI_create_eventset(&eventset);
+    retval = PAPI_create_eventset(&eventset);
     if (retval != PAPI_OK) {
       std::cerr << "Error: bad PAPI create eventset: ";
       PAPI_perror(NULL);
       exit(-1);
     }
-    PAPI_add_events(eventset, &event.codes[0], event.codes.size());
+    retval = PAPI_add_events(eventset, &event.codes[0], event.codes.size());
     if (retval != PAPI_OK) {
       std::cerr << "Error: bad PAPI add eventset: ";
       PAPI_perror(NULL);

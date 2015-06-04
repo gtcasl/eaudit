@@ -1,5 +1,5 @@
-CXXFLAGS=-g -std=gnu++0x -Wall -Wextra -pthread -Isupereasyjson
-LDFLAGS=-lpapi -lpthread
+CXXFLAGS=-g -std=gnu++0x -Wall -Wextra -pthread -Isupereasyjson -I/home/eric/.local/include
+LDFLAGS=-lpapi -lpthread -L/home/eric/.local/lib
 
 ifeq ($(RELEASE),y)
 	CXXFLAGS += -O3

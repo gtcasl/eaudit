@@ -50,7 +50,10 @@ const long kDefaultSamplePeriodUsecs = 1000;
 const long kMicroToBase = 1e6;
 const long kNanoToBase = 1e9;
 const char* kDefaultPrefix = "eaudit";
-const string kEnergyEventName = "rapl:::PACKAGE_ENERGY:PACKAGE0";
+const string kPackageEnergyName = "rapl:::PACKAGE_ENERGY:PACKAGE0";
+const string kDRAMEnergyName = "rapl:::DRAM_ENERGY:PACKAGE0";
+const string kCoreEnergyName = "rapl:::PP0_ENERGY:PACKAGE0";
+const vector<string> kAllEnergyNames = {kCoreEnergyName, kPackageEnergyName, kDRAMEnergyName};
 const char* kDefaultModelName = "default.model";
 const int kTotalCoreAssignments = 5;
 
@@ -189,11 +192,17 @@ struct Model {
     }
   }
 
-  double poll(const vector<long long>& values) const {
+  double poll(const vector<long long>& values, const vector<string>& names) const {
     ublas::vector<double> v = ublas::vector<double>(input_metrics_.size());
+    //vector<string> input_metrics_;
 
     for(unsigned i = 0; i < v.size(); ++i){
-        v[i] = values[i];
+      for(unsigned j = 0; j < names.size(); ++j){
+        if(names[j] == input_metrics_[j]){
+          v[i] = values[j];
+          break;
+        }
+      }
     }
 
     ublas::vector<double> inputs;
@@ -278,13 +287,14 @@ stats_t read_rapl(const vector<event_info_t>& eventsets, long period){
 
 vector<long long> modelPerCoreEnergies(const Model& model,
                                        const vector<stats_t>& core_stats,
+                                       const vector<string>& counter_names,
                                        long long total_energy) {
   vector<long long> results(core_stats.size());
   //double poll(map<string, double> params) const {
   vector<double> model_vals;
   model_vals.reserve(core_stats.size());
   for(const auto& core_stat : core_stats){
-    model_vals.push_back(model.poll(core_stat.counters));
+    model_vals.push_back(model.poll(core_stat.counters, counter_names));
   }
   double total = accumulate(begin(model_vals), end(model_vals), double{0});
   for(unsigned i = 0; i < results.size(); ++i){
@@ -294,28 +304,28 @@ vector<long long> modelPerCoreEnergies(const Model& model,
 }
 
 struct ProfileValue{
-  double energy;
+  double processor_energy, uncore_energy, dram_energy;
   double time;
   double instructions;
-  ProfileValue() : energy{0}, time{0}, instructions{0} {}
+  ProfileValue() : processor_energy{0}, uncore_energy(0), dram_energy(0), time{0}, instructions{0} {}
 };
 
 struct ProfileEntry{
   string name;
-  double energy, time, instructions;
+  double processor_energy, uncore_energy, dram_energy, time, instructions;
 };
 
 
 void do_profiling(int profilee_pid, const char* profilee_name,
                   const long period, const char* prefix,
-                  const Model& model) {
+                  const Model& proc_model, const Model& uncore_model, const Model& dram_model) {
   /*
    * Structures holding profiling data
    */
   vector<int> children_pids;
   vector<map<void*, ProfileValue>> core_profiles;
   stats_t global_stats;
-  global_stats.counters.resize(1);
+  global_stats.counters.resize(3);
   vector<vector<event_info_t>> core_counters;
   // TODO: assumption here is that hyperthreading is turned on, and that there
   // are two hardware threads per physical core. We have to make sure we only 
@@ -340,23 +350,31 @@ void do_profiling(int profilee_pid, const char* profilee_name,
    * Initialize PAPI measurement of all cores
    */
   int inst_counter_idx = 0;
+  // get all the names for all the input counters
+  vector<string> counter_names = proc_model.input_metrics_;
+  counter_names.insert(end(counter_names), begin(uncore_model.input_metrics_), end(uncore_model.input_metrics_));
+  counter_names.insert(end(counter_names), begin(dram_model.input_metrics_), end(dram_model.input_metrics_));
+  // remove all duplicates
+  sort(begin(counter_names), end(counter_names));
+  auto last_elem = unique(begin(counter_names), end(counter_names));
+  counter_names.erase(last_elem, end(counter_names));
+  auto inst_iter = find(begin(counter_names), end(counter_names), "PAPI_TOT_INS");
+  if(inst_iter == end(counter_names)){
+    inst_counter_idx = counter_names.size();
+    counter_names.push_back("PAPI_TOT_INS");
+  } else {
+    inst_counter_idx = distance(begin(counter_names), inst_iter);
+  }
+  // setup all core counters
   for(unsigned int i = 0; i < ncores; ++i){
     print("Creating per-core counters on core %d\n", i);
-    auto per_core_counter_names = model.input_metrics_;
-    auto inst_iter = find(begin(per_core_counter_names), end(per_core_counter_names), "PAPI_TOT_INS");  
-    if(inst_iter == end(per_core_counter_names)){
-      inst_counter_idx = per_core_counter_names.size();
-      per_core_counter_names.push_back("PAPI_TOT_INS");
-    } else {
-      inst_counter_idx = distance(begin(per_core_counter_names), inst_iter);
-    }
-    core_counters.emplace_back(init_papi_counters(per_core_counter_names));
+    core_counters.emplace_back(init_papi_counters(counter_names));
     auto& counters = core_counters[i];
     attach_counters_to_core(counters, i);
     start_counters(counters);
   }
   print("Creating global counters.\n");
-  auto global_counters = init_papi_counters(vector<string>{kEnergyEventName});
+  auto global_counters = init_papi_counters(kAllEnergyNames);
   start_counters(global_counters);
 
   /*
@@ -451,11 +469,21 @@ void do_profiling(int profilee_pid, const char* profilee_name,
         }
         auto cur_global_stats = read_rapl(global_counters, period);
         global_stats += cur_global_stats;
+        cout << "p: " << cur_global_stats.counters[0] << endl;
+        cout << "u: " << cur_global_stats.counters[1] << endl;
+        cout << "m: " << cur_global_stats.counters[2] << endl;
 
-        // TODO: poll model and update per-core counts appropriately
-        // TODO: cur_global_stats[0] is hardwired as the total energy to be modeled
-        auto per_core_energies = modelPerCoreEnergies(
-            model, stats, cur_global_stats.counters[0]);
+        // global counter 0 is processor plane energy
+        auto proc_energies = modelPerCoreEnergies(
+          proc_model, stats, counter_names, cur_global_stats.counters[0]);
+
+        // global counter 1 is package energy, including the processor plane
+        // (which we have to remove to calcluate uncore energy
+        auto uncore_energies = modelPerCoreEnergies(
+          uncore_model, stats, counter_names, cur_global_stats.counters[1] - cur_global_stats.counters[0]);
+        // global counter 2 is DRAM energy
+        auto dram_energies = modelPerCoreEnergies(
+          dram_model, stats, counter_names, cur_global_stats.counters[2]);
 
         // read all the children registers
         for(const auto& child : children_pids){
@@ -470,7 +498,9 @@ void do_profiling(int profilee_pid, const char* profilee_name,
           // want them.
           if((unsigned)child_core >= ncores) { continue; }
           auto& profile = core_profiles[child_core][rip];
-          profile.energy += per_core_energies[child_core];
+          profile.processor_energy += proc_energies[child_core];
+          profile.uncore_energy += uncore_energies[child_core];
+          profile.dram_energy += dram_energies[child_core];
           profile.time += stats[child_core].time;
           profile.instructions += stats[child_core].counters[inst_counter_idx];
         }
@@ -571,13 +601,17 @@ void do_profiling(int profilee_pid, const char* profilee_name,
         profile.push_back(entry);
         profile_iter = end(profile) - 1;
       }
-      profile_iter->energy += core_profile.second.energy;
+      profile_iter->processor_energy += core_profile.second.processor_energy;
+      profile_iter->uncore_energy += core_profile.second.uncore_energy;
+      profile_iter->dram_energy += core_profile.second.dram_energy;
       profile_iter->time += core_profile.second.time;
       profile_iter->instructions += core_profile.second.instructions;
     }
     sort(begin(profile), end(profile),
          [&](const ProfileEntry& a, const ProfileEntry& b) {
-           return a.energy > b.energy;
+           auto a_energy = a.processor_energy + a.uncore_energy + a.dram_energy;
+           auto b_energy = b.processor_energy + b.uncore_energy + b.dram_energy;
+           return a_energy > b_energy;
          });
 
     /*
@@ -586,16 +620,20 @@ void do_profiling(int profilee_pid, const char* profilee_name,
     stringstream namestream;
     namestream << prefix << "." << i << ".tsv";
     ofstream outfile{namestream.str()};
-    outfile << "Name\tEnergy\tTime\tInstructions\n";
+    outfile << "Name\tProcessor Energy\tUncore Energy\tDRAM Energy\tTime\tInstructions\n";
     for(const auto& elem : profile){
       outfile << elem.name << "\t"
-              << elem.energy / kNanoToBase << "\t"
+              << elem.processor_energy / kNanoToBase << "\t"
+              << elem.uncore_energy / kNanoToBase << "\t"
+              << elem.dram_energy / kNanoToBase << "\t"
               << elem.time / kMicroToBase << "\t"
               << elem.instructions << "\n";
     }
   }
 
-  cout << "Total Energy:\t" << global_stats.counters[0] / (double)kNanoToBase << " joules\n"
+  cout << "Total Processor Energy:\t" << global_stats.counters[0] / (double)kNanoToBase << " joules\n"
+       << "Total Uncore Energy:\t" << (global_stats.counters[1] - global_stats.counters[0]) / (double)kNanoToBase << " joules\n"
+       << "Total DRAM Energy:\t" << global_stats.counters[2] / (double)kNanoToBase << " joules\n"
        << "Elapsed Time:\t" << elapsed_time / (double)kMicroToBase << " seconds\n";
 
   auto profile_elapsed = PAPI_get_real_usec() - profile_start_time;
@@ -619,10 +657,12 @@ int main(int argc, char* argv[], char* envp[]) {
     "\n";
 
   auto period = kDefaultSamplePeriodUsecs;
-  auto model_fname = kDefaultModelName;
+  auto proc_model_fname = kDefaultModelName;
+  auto uncore_model_fname = kDefaultModelName;
+  auto dram_model_fname = kDefaultModelName;
   auto prefix = kDefaultPrefix;
   int param;
-  while((param = getopt(argc, argv, "+hp:o:m:")) != -1){
+  while((param = getopt(argc, argv, "+hp:o:c:u:m:")) != -1){
     switch(param){
       case 'p':
         period = stol(optarg);
@@ -630,9 +670,19 @@ int main(int argc, char* argv[], char* envp[]) {
       case 'o':
         prefix = optarg;
         break;
+      case 'c':
+        {
+          proc_model_fname = optarg;
+        }
+        break;
+      case 'u':
+        {
+          uncore_model_fname = optarg;
+        }
+        break;
       case 'm':
         {
-          model_fname = optarg;
+          dram_model_fname = optarg;
         }
         break;
       case 'h':
@@ -648,9 +698,11 @@ int main(int argc, char* argv[], char* envp[]) {
   }
 
   /*
-   * Make our model
+   * Make our models
    */
-  Model model{model_fname};
+  Model proc_model{proc_model_fname};
+  Model uncore_model{uncore_model_fname};
+  Model dram_model{dram_model_fname};
 
   /*
    * Fork a process to run the profiled application
@@ -660,7 +712,7 @@ int main(int argc, char* argv[], char* envp[]) {
     // Let's do this.
     ptrace(PTRACE_SETOPTIONS, profilee, nullptr,
            PTRACE_O_EXITKILL | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
-    do_profiling(profilee, argv[optind], period, prefix, model);
+    do_profiling(profilee, argv[optind], period, prefix, proc_model, uncore_model, dram_model);
   } else if(profilee == 0){ /* profilee */
     // prepare for tracing
     ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
