@@ -1,5 +1,7 @@
 *.o
 *.tsv
 test
-wrapper
+eaudit-wrapper
 tags
+eaudit
+*.csv

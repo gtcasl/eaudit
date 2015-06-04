@@ -7,7 +7,7 @@ else
 	CXXFLAGS += -O0 -DDEBUG
 endif
 
-all: eaudit test
+all: eaudit test eaudit-wrapper
 
 eaudit: eaudit.o supereasyjson/json.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
@@ -22,10 +22,13 @@ test: test.o
 test.o: test.cpp
 	$(CXX) -g -O0 -c -o $@ $<
 
+eaudit-wrapper: wrapper.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
 .PHONY: clean release all
 
 clean:
-	-rm *.o supereasyjson/*.o eaudit test
+	-rm *.o supereasyjson/*.o eaudit test eaudit-wrapper
 
 release:
 	$(MAKE) RELEASE=y

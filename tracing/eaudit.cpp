@@ -256,28 +256,20 @@ void overflow(int signum, siginfo_t* info, void* context){
 }
 
 
-stats_t read_rapl(const vector<event_info_t>& eventsets, long period){
+stats_t read_rapl(const event_info_t& eventsets, long period){
   stats_t res;
-  int ncounters = 0;
-  for(const auto& e : eventsets){
-    ncounters += e.codes.size();
+  res.counters.resize(eventsets.codes.size());
+  int retval=PAPI_stop(eventsets.set, &res.counters[0]);
+  if(retval != PAPI_OK){
+    cerr << "Error: bad PAPI stop: ";
+    PAPI_perror(NULL);
+    terminate();
   }
-  res.counters.resize(ncounters);
-  int cntr_offset = 0;
-  for(const auto& eventset : eventsets){
-    int retval=PAPI_stop(eventset.set, &res.counters[cntr_offset]);
-    if(retval != PAPI_OK){
-      cerr << "Error: bad PAPI stop: ";
-      PAPI_perror(NULL);
-      terminate();
-    }
-    retval = PAPI_start(eventset.set);
-    if(retval != PAPI_OK){
-      cerr << "Error: bad PAPI stop: ";
-      PAPI_perror(NULL);
-      terminate();
-    }
-    cntr_offset += eventset.codes.size();
+  retval = PAPI_start(eventsets.set);
+  if(retval != PAPI_OK){
+    cerr << "Error: bad PAPI stop: ";
+    PAPI_perror(NULL);
+    terminate();
   }
   res.time = period;
   return res;
@@ -326,7 +318,7 @@ void do_profiling(int profilee_pid, const char* profilee_name,
   vector<map<void*, ProfileValue>> core_profiles;
   stats_t global_stats;
   global_stats.counters.resize(3);
-  vector<vector<event_info_t>> core_counters;
+  vector<event_info_t> core_counters;
   // TODO: assumption here is that hyperthreading is turned on, and that there
   // are two hardware threads per physical core. We have to make sure we only 
   // run the correct number of threads during auditing, since this assumption
