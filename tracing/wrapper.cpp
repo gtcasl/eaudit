@@ -24,16 +24,6 @@ void print_comma_separated(std::ofstream& out, const std::vector<T>& things) {
       out << elem;
     }
   }
-}
-
-template<typename T>
-void print_comma_separated(std::ofstream& out, const std::vector<T>& first,
-                           const std::vector<T>& second) {
-  print_comma_separated(out, first);
-  if(!first.empty() && !second.empty()){
-    out << ",";
-  }
-  print_comma_separated(out, second);
   out << "\n";
 }
 
@@ -91,7 +81,7 @@ int main(int argc, char* argv[], char* envp[]){
     exit(-1);
   }
 
-  auto ncores = thread::hardware_concurrency() / 2;
+  auto ncores = thread::hardware_concurrency();
   vector<event_info_t> core_counters;
   for(unsigned i = 0; i < ncores; ++i){
     core_counters.emplace_back(init_papi_counters(papi_local_counter_strings));
@@ -128,26 +118,36 @@ int main(int argc, char* argv[], char* envp[]){
   }
 
   // stop counting energy
-  vector<long long> local_results(core_counters[0].codes.size(), 0);
+  vector<long long> results(core_counters[0].codes.size(), 0);
+  vector<string> results_names(core_counters[0].names);
   for(const auto& counters : core_counters){
-    auto results = stop_counters(counters);
+    auto core_result = stop_counters(counters);
     for(unsigned i = 0; i < results.size(); ++i){
-      local_results[i] += results[i];
+      results[i] += core_result[i];
     }
   }
   auto global_results = stop_counters(global_counters);
+  results.insert(end(results), begin(global_results), end(global_results));
+  results_names.insert(end(results_names), begin(global_counters.names),
+                       end(global_counters.names));
   if(do_timing){
     auto elapsed_time = PAPI_get_real_usec() - start_time;
-    global_counters.names.push_back("usecs");
-    global_results.push_back(elapsed_time);
+
+    results.push_back(elapsed_time);
+    results_names.push_back("ElapsedUsecs");
+  }
+
+  for(const auto& invariant : invariants){
+    results_names.push_back(invariant.first);
+    results.push_back(invariant.second);
   }
 
   std::ofstream ofile("wrapped.csv", std::ios::app);
   // only write headers if output file is empty
   if(ofile.tellp() == 0){
-    print_comma_separated(ofile, core_counters[0].names, global_counters.names);
+    print_comma_separated(ofile, results_names);
   }
-  print_comma_separated(ofile, local_results, global_results);
+  print_comma_separated(ofile, results);
 
   return 0;
 }
