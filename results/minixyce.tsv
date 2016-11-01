@@ -1,0 +1,16 @@
+Func Name	Time(s)	Package Energy(J)	PP0 Energy(J)	% Time	% Package Energy	% PP0 Energy	Package Power(w)	PP0 Power(w)
+std::vector<double, std::allocator<double> >::_M_insert_aux(__gnu_cxx::__normal_iterator<double*, std::vector<double, std::allocator<double> > >, double const&)	8.31864	187.053	159.677	69.2945	69.7002	69.7825	22.486	19.1951
+mX_matrix_utils::gmres(mX_matrix_utils::distributed_sparse_matrix*, std::vector<double, std::allocator<double> >&, std::vector<double, std::allocator<double> >&, double&, double&, int, std::vector<double, std::allocator<double> >&, int&, int&)	2.69874	61.1543	52.2403	22.4806	22.7874	22.8302	22.6603	19.3573
+std::vector<double, std::allocator<double> >* std::__uninitialized_copy<false>::__uninit_copy<std::vector<double, std::allocator<double> >*, std::vector<double, std::allocator<double> >*>(std::vector<double, std::allocator<double> >*, std::vector<double, std::allocator<double> >*, std::vector<double, std::allocator<double> >*)	0.656993	15.0341	12.841	5.47277	5.60205	5.6118	22.8833	19.5451
+std::vector<std::vector<double, std::allocator<double> >, std::allocator<std::vector<double, std::allocator<double> > > >::_M_insert_aux(__gnu_cxx::__normal_iterator<std::vector<double, std::allocator<double> >*, std::vector<std::vector<double, std::allocator<double> >, std::allocator<std::vector<double, std::allocator<double> > > > >, std::vector<double, std::allocator<double> > const&)	0.192396	4.36334	3.71846	1.60266	1.62588	1.62505	22.679	19.3272
+YAML_Doc::generateYAML()	0.116493	0.600494	0.21077	0.97039	0.223757	0.092111	5.15477	1.80929
+_GLOBAL__sub_I_main	0.0128027	0	0	0.106646	0	0	0	0
+mX_matrix_utils::distributed_sparse_matrix_add_to(mX_matrix_utils::distributed_sparse_matrix*, int, int, double, int, int)	0.00600029	0.134674	0.115311	0.0499826	0.0501825	0.0503933	22.4446	19.2175
+mX_matrix_utils::destroy_matrix(mX_matrix_utils::distributed_sparse_matrix*)	0.00154516	0.0193634	0.0127563	0.0128712	0.00721523	0.00557481	12.5316	8.25567
+mX_linear_DAE_utils::destroy(mX_linear_DAE_utils::mX_linear_DAE*)	0.00114955	0.00888061	0.00556946	0.00957582	0.00330911	0.00243398	7.72527	4.84489
+								
+								
+								
+								
+		Native Runtime	eaudit Runtime	% Difference				
+		12.3928	17.169	38.5401200697				

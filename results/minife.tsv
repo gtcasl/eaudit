@@ -1,0 +1,22 @@
+Func Name	Time(s)	Package Energy(J)	PP0 Energy(J)	% Time	% Package Energy	% PP0 Energy	Package Power(w)	PP0 Power(w)
+int miniFE::find_row_for_id<int>(int, std::map<int, int, std::less<int>, std::allocator<std::pair<int const, int> > > const&)	1.30305	28.901	24.695	41.9701	42.7379	42.8811	22.1795	18.9517
+void miniFE::Hex8::gradients_and_invJ_and_detJ<double>(double const*, double const*, double*, double&)	0.394024	8.70827	7.42699	12.6911	12.8775	12.8964	22.1009	18.8491
+void miniFE::impose_dirichlet<miniFE::CSRMatrix<double, int, int>, miniFE::Vector<double, int, int> >(miniFE::CSRMatrix<double, int, int>::ScalarType, miniFE::CSRMatrix<double, int, int>&, miniFE::Vector<double, int, int>&, int, int, int, std::set<miniFE::CSRMatrix<double, int, int>::GlobalOrdinalType, std::less<miniFE::CSRMatrix<double, int, int>::GlobalOrdinalType>, std::allocator<miniFE::CSRMatrix<double, int, int>::GlobalOrdinalType> > const&)	0.372258	7.45766	6.21783	11.9901	11.0281	10.7968	20.0336	16.703
+void miniFE::sum_in_symm_elem_matrix<miniFE::CSRMatrix<double, int, int> >(unsigned long, miniFE::CSRMatrix<double, int, int>::GlobalOrdinalType const*, miniFE::CSRMatrix<double, int, int>::ScalarType const*, miniFE::CSRMatrix<double, int, int>&)	0.305096	6.74666	5.75375	9.82684	9.97674	9.99098	22.1132	18.8588
+miniFE::mytimer()	0.269013	5.94295	5.08595	8.66466	8.78824	8.83139	22.0917	18.906
+void miniFE::Hex8::sourceVector<double>(double const*, double const*, double*)	0.203042	4.42094	3.77094	6.53979	6.53755	6.54796	21.7735	18.5722
+void miniFE::Hex8::diffusionMatrix_symm<double>(double const*, double const*, double*)	0.0950086	2.07611	1.77042	3.06014	3.07009	3.0742	21.8518	18.6343
+MatrixInitOp<miniFE::CSRMatrix<double, int, int> >::operator()(int)	0.0540027	1.21173	1.03636	1.73937	1.79187	1.79957	22.4383	19.1909
+void miniFE::get_elem_nodes_and_coords<int, double>(miniFE::simple_mesh_description<int> const&, int, int*, double*)	0.0510032	1.12646	0.960556	1.64277	1.66578	1.66794	22.0862	18.8332
+std::vector<double, std::allocator<double> >::_M_fill_insert(__gnu_cxx::__normal_iterator<double*, std::vector<double, std::allocator<double> > >, unsigned long, double const&)	0.0211212	0.448639	0.377441	0.680292	0.663433	0.6554	21.2412	17.8703
+std::vector<int, std::allocator<int> >::_M_fill_insert(__gnu_cxx::__normal_iterator<int*, std::vector<int, std::allocator<int> > >, unsigned long, int const&)	0.0121732	0.258453	0.218033	0.392086	0.382192	0.378598	21.2314	17.9109
+_GLOBAL__sub_I__ZN6miniFE11is_neighborERK3BoxS2_	0.0104118	0	0	0.335355	0	0	0	0
+std::_Rb_tree<int, int, std::_Identity<int>, std::less<int>, std::allocator<int> >::_M_insert_unique(int const&)	0.0100008	0.215576	0.183273	0.322116	0.318787	0.318241	21.5559	18.3259
+std::_Rb_tree<int, int, std::_Identity<int>, std::less<int>, std::allocator<int> >::_M_erase(std::_Rb_tree_node<int>*)	0.0030002	0.0657501	0.0558319	0.0966337	0.0972291	0.0969481	21.9152	18.6094
+void miniFE::get_ids<int>(int, int, int, Box const&, std::vector<int, std::allocator<int> >&, bool)	0.00151158	0.0436707	0.0371246	0.0486864	0.0645787	0.0644642	28.8908	24.5602
+								
+								
+								
+								
+		Native Runtime	eaudit Runtime	% Difference				
+		4.5665	8.2015	79.6014453082				

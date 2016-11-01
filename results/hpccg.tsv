@@ -1,0 +1,13 @@
+Func Name	Time(s)	Package Energy(J)	PP0 Energy(J)	% Time	% Package Energy	% PP0 Energy	Package Power(w)	PP0 Power(w)
+HPC_sparsemv(HPC_Sparse_Matrix_STRUCT*, double const*, double*)	33.1582	917.968	709.395	79.5919	80.8272	80.6655	27.6845	21.3942
+waxpby(int, double, double const*, double, double const*, double*)	4.96658	132.259	102.626	11.9216	11.6454	11.6696	26.6298	20.6632
+ddot(int, double const*, double const*, double*, double&)	2.44488	61.7404	47.3721	5.86861	5.43625	5.38669	25.253	19.376
+generate_matrix(int, int, int, HPC_Sparse_Matrix_STRUCT**, double**, double**, double**)	1.06988	23.5941	19.9063	2.56809	2.07746	2.26355	22.0531	18.6062
+_GLOBAL__sub_I_main	0.0135277	0	0	0.0324714	0	0	0	0
+HPCCG(HPC_Sparse_Matrix_STRUCT*, double const*, double*, int, double, int&, double&, double*)	0.0072134	0.15535	0.129211	0.0173148	0.0136786	0.0146927	21.5363	17.9127
+								
+								
+								
+								
+	Native Runtime	eaudit Runtime	% Difference					
+	38.438	38.886	1.1520855835					

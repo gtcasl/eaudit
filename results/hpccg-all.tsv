@@ -1,0 +1,6 @@
+Func Name	Time(s)	Package Energy(J)	PP0 Energy(J)	% Time	% Package Energy	% PP0 Energy	Package Power(w)	PP0 Power(w)	# Calls	Time Avg	Time Stddev	Package Energy Avg	PP0 Energy Avg	Package Energy Stddev	PP0 Energy Stddev
+HPC_sparsemv(HPC_Sparse_Matrix_STRUCT*, double const*, double*)	32.828	907.83	703.724	79.4776	80.7333	80.5706	27.6541	21.4367	150	0.218853	0.00162132	6.0522	4.69149	0.0375088	0.0319103
+waxpby(int, double, double const*, double, double const*, double*)	4.96647	131.914	102.757	12.024	11.7311	11.7648	26.5609	20.6901	449	0.0110612	0.000614748	0.293795	0.228857	0.0135657	0.0115837
+ddot(int, double const*, double const*, double*, double&)	2.46211	62.192	47.8635	5.96084	5.53073	5.47998	25.2597	19.4401	298	0.0082621	0.000890196	0.208698	0.160616	0.0366079	0.0268332
+generate_matrix(int, int, int, HPC_Sparse_Matrix_STRUCT**, double**, double**, double**)	1.03748	22.5445	19.0808	2.51177	2.00488	2.1846	21.73	18.3915	1	1.03748	0	22.5445	19.0808	0	0
+_GLOBAL__sub_I_main	0.0106474	0	0	0.0257777	0	0	0	0	1	0.0106474	0	0	0	0	0

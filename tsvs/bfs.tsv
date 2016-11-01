@@ -1,0 +1,53 @@
+----------------------------------------
+----       Per-function profile     ----
+----------------------------------------
+				Core 0						Core 1						Core 2						Core 3						
+Func Name	Total Energy(j)	Total Time(s)	Total Energy Efficiency(inst/joule)	Energy(j)	Time(s)	Energy Efficiency(inst/joule)	% of Total Function Energy	%of Total Function Time	% difference in Energy Efficiency	Energy(j)	Time(s)	Energy Efficiency(inst/joule)	% of Total Function Energy	%of Total Function Time	% difference in Energy Efficiency	Energy(j)	Time(s)	Energy Efficiency(inst/joule)	% of Total Function Energy	%of Total Function Time	% difference in Energy Efficiency	Energy(j)	Time(s)	Energy Efficiency(inst/joule)	% of Total Function Energy	%of Total Function Time	% difference in Energy Efficiency	
+?? at ??	56.1873	4.217	2.52049e+08	33.3331	1.707	3.38238e+08	59.325	40.479	29.2025	7.68471	0.809	1.26506e+08	13.6769	19.1843	66.327	7.51571	0.85	1.26274e+08	13.3762	20.1565	66.4907	7.65381	0.851	1.2624e+08	13.6219	20.1802	66.5145	
+runCPU(int, char**) at ??	0.678344	0.03	4.49814e+08	0.678344	0.03	4.49814e+08	100	100	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	
+std::_Deque_iterator<int, int&, int*>::_Deque_iterator(std::_Deque_iterator<int, int&, int*> const&) at ??	0.337406	0.029	1.25174e+08	0.191874	0.014	1.25488e+08	56.8674	48.2759	0.250023	0.136969	0.014	1.24295e+08	40.5948	48.2759	0.70509	0.00856294	0.001	1.32221e+08	2.53788	3.44828	5.47518	0	0	0	0	0	0	
+BFS_CPU(Node*, Edge*, int*, int*, int) at ??	0.218577	0.018	1.21139e+08	0.128399	0.009	1.21274e+08	58.7433	50	0.111644	0.0901774	0.009	1.20946e+08	41.2567	50	0.159179	0	0	0	0	0	0	0	0	0	0	0	0	
+bool std::operator==<int, int&, int*>(std::_Deque_iterator<int, int&, int*> const&, std::_Deque_iterator<int, int&, int*> const&) at ??	0.168982	0.014	1.19326e+08	0.0992495	0.007	1.19354e+08	58.7339	50	0.0237189	0.069732	0.007	1.19286e+08	41.2661	50	0.0337688	0	0	0	0	0	0	0	0	0	0	0	0	
+std::deque<int, std::allocator<int> >::pop_front() at ??	0.10841	0.01	1.35867e+08	0.0641343	0.005	1.36199e+08	59.1592	50	0.244581	0.0442754	0.005	1.35385e+08	40.8408	50	0.355348	0	0	0	0	0	0	0	0	0	0	0	0	
+std::_Deque_iterator<int, int&, int*>::operator*() const at ??	0.0861206	0.008	1.32836e+08	0.0501494	0.004	1.33149e+08	58.2316	50	0.23595	0.0359713	0.004	1.32398e+08	41.7684	50	0.329882	0	0	0	0	0	0	0	0	0	0	0	0	
+std::deque<int, std::allocator<int> >::begin() at ??	0.0442804	0.004	1.34925e+08	0.0260806	0.002	1.35208e+08	58.8988	50	0.209809	0.0181998	0.002	1.34519e+08	41.1012	50	0.30143	0	0	0	0	0	0	0	0	0	0	0	0	
+std::deque<int, std::allocator<int> >::empty() const at ??	0.0224109	0.002	1.35252e+08	0.0132747	0.001	1.35496e+08	59.2331	50	0.180459	0.0091362	0.001	1.34897e+08	40.7669	50	0.262783	0	0	0	0	0	0	0	0	0	0	0	0	
+
+----------------------------------------
+----       Per-thread profile       ----
+----------------------------------------
+THREAD 0
+Func Name	Total Energy(j)	Total Time(s)	Energy Efficiency(inst/joule)	% Core Energy	% Core Time	% Tot Energy	% Tot Time
+?? at ??	33.3331	1.707	3.38238e+08	96.3813	95.9528	57.618	39.4044
+runCPU(int, char**) at ??	0.678344	0.03	4.49814e+08	1.96141	1.68634	1.17255	0.692521
+std::_Deque_iterator<int, int&, int*>::_Deque_iterator(std::_Deque_iterator<int, int&, int*> const&) at ??	0.191874	0.014	1.25488e+08	0.554796	0.786959	0.331664	0.323176
+BFS_CPU(Node*, Edge*, int*, int*, int) at ??	0.128399	0.009	1.21274e+08	0.371261	0.505902	0.221945	0.207756
+bool std::operator==<int, int&, int*>(std::_Deque_iterator<int, int&, int*> const&, std::_Deque_iterator<int, int&, int*> const&) at ??	0.0992495	0.007	1.19354e+08	0.286976	0.393479	0.171558	0.161588
+std::deque<int, std::allocator<int> >::pop_front() at ??	0.0641343	0.005	1.36199e+08	0.185442	0.281057	0.11086	0.11542
+std::_Deque_iterator<int, int&, int*>::operator*() const at ??	0.0501494	0.004	1.33149e+08	0.145005	0.224845	0.0866859	0.0923361
+std::deque<int, std::allocator<int> >::begin() at ??	0.0260806	0.002	1.35208e+08	0.075411	0.112423	0.0450817	0.0461681
+std::deque<int, std::allocator<int> >::empty() const at ??	0.0132747	0.001	1.35496e+08	0.0383831	0.0562114	0.0229459	0.023084
+
+THREAD 1
+Func Name	Total Energy(j)	Total Time(s)	Energy Efficiency(inst/joule)	% Core Energy	% Core Time	% Tot Energy	% Tot Time
+?? at ??	7.68471	0.809	1.26506e+08	95	95.0646	13.2834	18.675
+std::_Deque_iterator<int, int&, int*>::_Deque_iterator(std::_Deque_iterator<int, int&, int*> const&) at ??	0.136969	0.014	1.24295e+08	1.69324	1.64512	0.236758	0.323176
+BFS_CPU(Node*, Edge*, int*, int*, int) at ??	0.0901774	0.009	1.20946e+08	1.11479	1.05758	0.155876	0.207756
+bool std::operator==<int, int&, int*>(std::_Deque_iterator<int, int&, int*> const&, std::_Deque_iterator<int, int&, int*> const&) at ??	0.069732	0.007	1.19286e+08	0.862042	0.822562	0.120536	0.161588
+std::deque<int, std::allocator<int> >::pop_front() at ??	0.0442754	0.005	1.35385e+08	0.547341	0.587544	0.0765323	0.11542
+std::_Deque_iterator<int, int&, int*>::operator*() const at ??	0.0359713	0.004	1.32398e+08	0.444684	0.470035	0.0621782	0.0923361
+std::deque<int, std::allocator<int> >::begin() at ??	0.0181998	0.002	1.34519e+08	0.224989	0.235018	0.0314593	0.0461681
+std::deque<int, std::allocator<int> >::empty() const at ??	0.0091362	0.001	1.34897e+08	0.112944	0.117509	0.0157924	0.023084
+
+THREAD 2
+Func Name	Total Energy(j)	Total Time(s)	Energy Efficiency(inst/joule)	% Core Energy	% Core Time	% Tot Energy	% Tot Time
+?? at ??	7.51571	0.85	1.26274e+08	99.8862	99.8825	12.9913	19.6214
+std::_Deque_iterator<int, int&, int*>::_Deque_iterator(std::_Deque_iterator<int, int&, int*> const&) at ??	0.00856294	0.001	1.32221e+08	0.113804	0.117509	0.0148015	0.023084
+
+THREAD 3
+Func Name	Total Energy(j)	Total Time(s)	Energy Efficiency(inst/joule)	% Core Energy	% Core Time	% Tot Energy	% Tot Time
+?? at ??	7.65381	0.851	1.2624e+08	100	100	13.23	19.6445
+
+GLOBAL
+		Total Energy(j)	Total Time(s)	Energy Efficiency(inst/joule)	Elapsed Time(s)
+		57.8519	4.332	2.52215e+08	1.91419

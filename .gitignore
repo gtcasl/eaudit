@@ -1,5 +1,4 @@
 *.o
-*.tsv
 test
 eaudit-wrapper
 tags

@@ -1,0 +1,230 @@
+----------------------------------------																											
+----       Per-function profile     ----																											
+----------------------------------------																											
+				Core 0						Core 1						Core 2						Core 3					
+Func Name	Total Energy(j)	Total Time(s)	Total Energy Efficiency(inst/joule)	Energy(j)	Time(s)	Energy Efficiency(inst/joule)	% of Total Function Energy	%of Total Function Time	% difference in Energy Efficiency	Energy(j)	Time(s)	Energy Efficiency(inst/joule)	% of Total Function Energy	%of Total Function Time	% difference in Energy Efficiency	Energy(j)	Time(s)	Energy Efficiency(inst/joule)	% of Total Function Energy	%of Total Function Time	% difference in Energy Efficiency	Energy(j)	Time(s)	Energy Efficiency(inst/joule)	% of Total Function Energy	%of Total Function Time	% difference in Energy Efficiency
+atomic_fetch_add<double> at Kokkos_Atomic_Fetch_Add.hpp	92.1553	7.8	297477000	22.6045	1.937	294608000	24.5288	24.8333	0.968878	22.8546	1.935	301730000	24.8001	24.8077	1.41966	23.4345	1.984	293524000	25.4294	25.4359	1.33746	23.2616	1.944	300067000	25.2417	24.9231	0.866859
+compute_halfneigh_threadedItem<0, 1> at force_lj.cpp	28.2799	2.381	294374000	7.27076	0.611	289298000	25.71	25.6615	1.73918	7.25476	0.613	296465000	25.6534	25.7455	0.707935	6.80314	0.574	293168000	24.0565	24.1075	0.410572	6.95123	0.583	298680000	24.5801	24.4855	1.45234
+operator()<int, int> at Kokkos_View.hpp	13.4488	1.134	303612000	3.57592	0.293	295462000	26.5892	25.8377	2.72087	3.41967	0.294	305057000	25.4274	25.9259	0.474772	3.2998	0.276	302688000	24.5361	24.3386	0.304999	3.15336	0.271	312255000	23.4472	23.8977	2.8067
+Neighbor::build_Item(int const&) const at neighbor.cpp	12.7005	0.881	518185000	3.1696	0.221	508790000	24.9566	25.0851	1.82953	3.1736	0.221	527383000	24.988	25.0851	1.7595	3.18414	0.221	510054000	25.071	25.0851	1.58143	3.17314	0.218	526528000	24.9844	24.7446	1.59716
+?? at ??	2.72077	0.244	214458000	1.03999	0.056	167748000	38.2239	22.9508	24.4425	0.239762	0.039	262551000	8.81226	15.9836	20.1645	0.679225	0.051	231698000	24.9644	20.9016	7.72832	0.7618	0.098	247717000	27.9994	40.1639	14.3926
+compute_halfneigh_threadedItem<1, 1> at force_lj.cpp	1.23118	0.103	285792000	0.303075	0.026	291244000	24.6167	25.2427	1.8896	0.301393	0.026	296061000	24.48	25.2427	3.52959	0.321712	0.026	276706000	26.1304	25.2427	3.2309	0.304999	0.025	279813000	24.7729	24.2718	2.11447
+Integrate::initialIntegrateItem(int const&) const at integrate.cpp	1.1659	0.103	263888000	0.344843	0.026	262520000	29.5773	25.2427	0.519926	0.254249	0.026	258884000	21.8071	25.2427	1.91447	0.332906	0.026	269368000	28.5535	25.2427	2.05523	0.233905	0.025	263546000	20.0622	24.2718	0.129791
+Integrate::finalIntegrateItem(int const&) const at integrate.cpp	0.616391	0.058	217527000	0.198385	0.012	211383000	32.1849	20.6897	2.86526	0.0789612	0.013	215405000	12.8102	22.4138	0.980328	0.230102	0.016	222295000	37.3306	27.5862	2.16792	0.108943	0.017	220185000	17.6743	29.3103	1.21448
+ViewAssignment<int const*, Kokkos::OpenMP, Kokkos::MemoryTraits<1u>, void, int**, Kokkos::LayoutRight, Kokkos::OpenMP, void> at Kokkos_ViewDefault.hpp	0.334596	0.026	610841000	0.0869435	0.007	604649000	25.9846	26.9231	1.01893	0.0936602	0.007	604593000	27.992	26.9231	1.02819	0.0735775	0.006	617746000	21.99	23.0769	1.12402	0.0804147	0.006	618497000	24.0334	23.0769	1.24543
+ForceZeroFunctor::operator()(int) const at force.h	0.326999	0.028	285715000	0.0689959	0.006	288539000	21.0998	21.4286	0.983488	0.0699754	0.007	301142000	21.3993	25	5.25742	0.105052	0.007	264694000	32.1263	25	7.63856	0.0829748	0.008	296972000	25.3747	28.5714	3.86382
+random at setup.cpp	0.322985	0.027	223100000	0.199895	0.01	209021000	61.8898	37.037	6.51614	0.079699	0.01	232565000	24.6757	37.037	4.15464	0.0433915	0.007	270572000	13.4345	25.9259	19.2322	0	0	0	0	0	0
+Kokkos::Impl::ViewInit<Kokkos::View<int**, Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.295768	0.016	562611000	0.068587	0.005	618442000	23.1894	31.25	9.4544	0.0908624	0.005	605791000	30.7208	31.25	7.39125	0.0680428	0.003	497562000	23.0055	18.75	12.2714	0.0682758	0.003	513889000	23.0842	18.75	9.05201
+operator[]<int> at Kokkos_View.hpp	0.268243	0.023	508482000	0.0804224	0.006	444629000	29.9812	26.087	13.3988	0.0612757	0.006	532411000	22.8433	26.087	4.59774	0.0727473	0.006	487359000	27.1199	26.087	4.24211	0.0537978	0.005	605243000	20.0556	21.7391	17.3761
+DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::LayoutRight, Kokkos::OpenMP, void, Kokkos::Impl::LayoutDefault>, 2>::operator()(int) const at types.h	0.259094	0.02	222006000	0.0598301	0.005	237583000	23.092	25	6.77877	0.0686901	0.005	217493000	26.5116	25	2.05349	0.0648891	0.005	214910000	25.0446	25	3.24814	0.065685	0.005	219546000	25.3518	25	1.11421
+Kokkos::Impl::ParallelFor<ForceZeroFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(ForceZeroFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.242479	0.019	274630000	0.0697307	0.006	285140000	28.7574	31.5789	3.75511	0.0667895	0.005	272509000	27.5444	26.3158	0.775187	0.071841	0.005	288936000	29.6277	26.3158	5.07708	0.034118	0.003	227176000	14.0705	15.7895	18.913
+Atom::unpack_reverseItem(int const&) const at atom.cpp	0.21536	0.02	185160000	0.0861622	0.004	166388000	40.0085	20	10.6796	0.00903493	0.004	179816000	4.19528	20	2.92831	0.0979263	0.006	195094000	45.4711	30	5.22504	0.0222363	0.006	216320000	10.3252	30	15.5227
+Neighbor::binatomsItem(int const&) const at neighbor.cpp	0.177545	0.011	313347000	0.020822	0.002	309039000	11.7277	18.1818	1.3843	0.0239176	0.002	307284000	13.4713	18.1818	1.95365	0.028203	0.003	345447000	15.885	27.2727	9.74507	0.104602	0.004	306935000	58.916	36.3636	2.06716
+Kokkos::Impl::ViewInit<Kokkos::View<double* [3], Kokkos::LayoutRight, Kokkos::OpenMP, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.148193	0.016	315819000	0.0637391	0.004	232616000	43.0108	25	30.3419	0.0203604	0.004	369698000	13.7391	25	15.7192	0.0193594	0.004	372886000	13.0636	25	16.5721	0.0447345	0.004	385151000	30.1866	25	19.7816
+Atom::unpack_commItem(int const&) const at atom.cpp	0.143778	0.015	338512000	0.0411274	0.004	345840000	28.6048	26.6667	2.14157	0.0453424	0.005	337678000	31.5364	33.3333	0.246848	0.0317454	0.003	331091000	22.0795	20	2.21648	0.0255627	0.003	337418000	17.7793	20	0.323644
+Atom::sortItem(int const&) const at atom.cpp	0.134949	0.008	185364000	0.0313294	0.002	194669000	23.2158	25	4.89685	0.0354136	0.002	181550000	26.2423	25	2.0791	0.0325794	0.002	186053000	24.142	25	0.371094	0.0356263	0.002	180343000	26.3999	25	2.74608
+at<long unsigned int, long unsigned int> at Kokkos_View.hpp	0.132699	0.012	609192000	0.0348895	0.002	511358000	26.2923	16.6667	17.4618	0.012914	0.002	510826000	9.7318	16.6667	17.565	0.0423558	0.004	651409000	31.9187	33.3333	6.6979	0.0425395	0.004	677259000	32.0572	33.3333	10.5822
+Atom::pack_commItemPBC(int const&) const at atom.cpp	0.130546	0.009	216757000	0.0344559	0.002	209355000	26.3936	22.2222	3.47407	0.0285249	0.002	207016000	21.8504	22.2222	4.59723	0.0332161	0.002	208136000	25.4439	22.2222	4.05815	0.0343494	0.003	240608000	26.3121	33.3333	10.4296
+Atom::pack_reverseItem(int const&) const at atom.cpp	0.127506	0.015	219433000	0.0492959	0.003	221567000	38.6616	20	0.967993	0.00572874	0.004	219067000	4.49291	26.6667	0.166633	0.0661414	0.004	218143000	51.8731	26.6667	0.589445	0.00634007	0.004	216621000	4.97237	26.6667	1.28967
+Kokkos::Impl::ViewInit<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.0676565	0.007	169038000	0.0275355	0.002	182598000	40.6989	28.5714	7.71251	0.0180856	0.002	154863000	26.7314	28.5714	8.75274	0.0189226	0.002	155123000	27.9687	28.5714	8.58537	0.00311283	0.001	216036000	4.60094	14.2857	24.4097
+DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2>::operator()(int) const at types.h	0.0635018	0.006	329491000	0.0193437	0.002	319307000	30.4616	33.3333	3.13918	0.0232321	0.002	317743000	36.5849	33.3333	3.63026	0.0116633	0.001	351947000	18.3669	16.6667	6.59093	0.00926276	0.001	351947000	14.5866	16.6667	6.59069
+Kokkos::Impl::ParallelFor<NeighborBinatomsFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(NeighborBinatomsFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0560853	0.006	535773000	0.0164024	0.002	519443000	29.2454	33.3333	3.09501	0.0181555	0.002	517728000	32.3712	33.3333	3.42558	0.0102347	0.001	563433000	18.2485	16.6667	5.03284	0.0112927	0.001	563432000	20.1348	16.6667	5.03258
+Neighbor::coord2bin(double, double, double) const at neighbor.cpp	0.0471447	0.005	510488000	0.0188693	0.002	539098000	40.0243	40	5.45166	0.020947	0.002	534434000	44.4313	40	4.58315	0.00732837	0.001	368379000	15.5444	20	32.3392	0	0	0	0	0	0
+Comm::border_sendItemA(int) const at comm.cpp	0.033167	0.002	279713000	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0.033167	0.002	279713000	100	100	0
+create_atoms(Atom&, int, int, int, double) at setup.cpp	0.0325381	0.003	279345000	0.0155284	0.001	279315000	47.7237	33.3333	0.0106479	0.0083039	0.001	279371000	25.5205	33.3333	0.00951853	0.00870582	0.001	279372000	26.7558	33.3333	0.00991152	0	0	0	0	0	0
+Kokkos::Impl::ParallelFor<ForceComputeHalfneighThreadedFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(ForceComputeHalfneighThreadedFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0235028	0.002	326062000	0	0	0	0	0	0	0	0	0	0	0	0	0.0112207	0.001	326062000	47.7422	50	1.14851E-005	0.012282	0.001	326062000	52.2578	50	1.04926E-005
+Kokkos::Impl::ParallelFor<DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2>, unsigned long, Kokkos::OpenMP>::ParallelFor(DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2> const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.021276	0.002	281026000	0	0	0	0	0	0	0	0	0	0	0	0	0.00885474	0.001	281031000	41.6184	50	0.001872	0.0124213	0.001	281022000	58.3816	50	0.00133451
+Comm::growsend(int) at comm.cpp	0.0194359	0.002	332977000	0.0101307	0.001	332970000	52.1237	50	0.00226927	0.00930521	0.001	332986000	47.8763	50	0.00247054	0	0	0	0	0	0	0	0	0	0	0	0
+Kokkos::Impl::MemoryTracking::increment(void const*) at Kokkos_MemoryTracking.cpp	0.0191327	0.002	311498000	0.00954209	0.001	311497000	49.8733	50	0.000148733	0.00959058	0.001	311498000	50.1267	50	0.00014798	0	0	0	0	0	0	0	0	0	0	0	0
+Kokkos::Impl::ParallelFor<FinalIntegrateFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(FinalIntegrateFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.018232	0.002	281031000	0	0	0	0	0	0	0	0	0	0	0	0	0.0124656	0.001	281028000	68.3723	50	0.00111434	0.00576635	0.001	281038000	31.6277	50	0.00240892
+Kokkos::Impl::ParallelFor<InitialIntegrateFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(InitialIntegrateFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0179007	0.002	375445000	0.0100693	0.001	375442000	56.2509	50	0.000658253	0.00783139	0.001	375448000	43.7491	50	0.000846351	0	0	0	0	0	0	0	0	0	0	0	0
+upper_bound at Kokkos_MemoryTracking.cpp	0.0160944	0.002	283318000	0.0103147	0.001	283317000	64.0885	50	0.000235027	0.00577976	0.001	283319000	35.9115	50	0.000419434	0	0	0	0	0	0	0	0	0	0	0	0
+Kokkos::Impl::ParallelFor<AtomUnpackReverseFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(AtomUnpackReverseFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0142877	0.001	98094500	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0.0142877	0.001	98094500	100	100	0
+																											
+----------------------------------------																											
+----       Per-thread profile       ----																											
+----------------------------------------																											
+THREAD 0																											
+Func Name	Total Energy(j)	Total Time(s)	Energy Efficiency(inst/joule)	% Core Energy	% Core Time	% Tot Energy	% Tot Time																				
+atomic_fetch_add<double> at Kokkos_Atomic_Fetch_Add.hpp	22.6045	1.937	294608000	57.023	59.3625	14.4874	14.8851																				
+compute_halfneigh_threadedItem<0, 1> at force_lj.cpp	7.27076	0.611	289298000	18.3415	18.7251	4.65987	4.6953																				
+operator()<int, int> at Kokkos_View.hpp	3.57592	0.293	295462000	9.02073	8.97947	2.29182	2.25159																				
+Neighbor::build_Item(int const&) const at neighbor.cpp	3.1696	0.221	508790000	7.99576	6.77291	2.03142	1.6983																				
+?? at ??	1.03999	0.056	167748000	2.62351	1.71621	0.666533	0.430339																				
+Integrate::initialIntegrateItem(int const&) const at integrate.cpp	0.344843	0.026	262520000	0.869913	0.796813	0.221011	0.1998																				
+compute_halfneigh_threadedItem<1, 1> at force_lj.cpp	0.303075	0.026	291244000	0.764549	0.796813	0.194243	0.1998																				
+random at setup.cpp	0.199895	0.01	209021000	0.504262	0.306466	0.128114	0.0768462																				
+Integrate::finalIntegrateItem(int const&) const at integrate.cpp	0.198385	0.012	211383000	0.500452	0.36776	0.127146	0.0922155																				
+ViewAssignment<int const*, Kokkos::OpenMP, Kokkos::MemoryTraits<1u>, void, int**, Kokkos::LayoutRight, Kokkos::OpenMP, void> at Kokkos_ViewDefault.hpp	0.0869435	0.007	604649000	0.219327	0.214527	0.0557225	0.0537924																				
+Atom::unpack_reverseItem(int const&) const at atom.cpp	0.0861622	0.004	166388000	0.217356	0.122587	0.0552218	0.0307385																				
+operator[]<int> at Kokkos_View.hpp	0.0804224	0.006	444629000	0.202877	0.18388	0.0515431	0.0461077																				
+Kokkos::Impl::ParallelFor<ForceZeroFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(ForceZeroFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0697307	0.006	285140000	0.175905	0.18388	0.0446907	0.0461077																				
+ForceZeroFunctor::operator()(int) const at force.h	0.0689959	0.006	288539000	0.174052	0.18388	0.0442198	0.0461077																				
+Kokkos::Impl::ViewInit<Kokkos::View<int**, Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.068587	0.005	618442000	0.17302	0.153233	0.0439577	0.0384231																				
+Kokkos::Impl::ViewInit<Kokkos::View<double* [3], Kokkos::LayoutRight, Kokkos::OpenMP, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.0637391	0.004	232616000	0.160791	0.122587	0.0408507	0.0307385																				
+DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::LayoutRight, Kokkos::OpenMP, void, Kokkos::Impl::LayoutDefault>, 2>::operator()(int) const at types.h	0.0598301	0.005	237583000	0.150929	0.153233	0.0383454	0.0384231																				
+Atom::pack_reverseItem(int const&) const at atom.cpp	0.0492959	0.003	221567000	0.124356	0.0919399	0.031594	0.0230539																				
+Atom::unpack_commItem(int const&) const at atom.cpp	0.0411274	0.004	345840000	0.103749	0.122587	0.0263588	0.0307385																				
+at<long unsigned int, long unsigned int> at Kokkos_View.hpp	0.0348895	0.002	511358000	0.0880135	0.0612933	0.0223609	0.0153692																				
+Atom::pack_commItemPBC(int const&) const at atom.cpp	0.0344559	0.002	209355000	0.0869196	0.0612933	0.0220829	0.0153692																				
+Atom::sortItem(int const&) const at atom.cpp	0.0313294	0.002	194669000	0.0790328	0.0612933	0.0200792	0.0153692																				
+Kokkos::Impl::ViewInit<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.0275355	0.002	182598000	0.069462	0.0612933	0.0176476	0.0153692																				
+Neighbor::binatomsItem(int const&) const at neighbor.cpp	0.020822	0.002	309039000	0.0525263	0.0612933	0.0133449	0.0153692																				
+DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2>::operator()(int) const at types.h	0.0193437	0.002	319307000	0.048797	0.0612933	0.0123974	0.0153692																				
+Neighbor::coord2bin(double, double, double) const at neighbor.cpp	0.0188693	0.002	539098000	0.0476005	0.0612933	0.0120935	0.0153692																				
+Kokkos::Impl::ParallelFor<NeighborBinatomsFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(NeighborBinatomsFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0164024	0.002	519443000	0.0413772	0.0612933	0.0105124	0.0153692																				
+create_atoms(Atom&, int, int, int, double) at setup.cpp	0.0155284	0.001	279315000	0.0391725	0.0306466	0.00995224	0.00768462																				
+upper_bound at Kokkos_MemoryTracking.cpp	0.0103147	0.001	283317000	0.0260202	0.0306466	0.00661074	0.00768462																				
+Comm::growsend(int) at comm.cpp	0.0101307	0.001	332970000	0.0255561	0.0306466	0.00649283	0.00768462																				
+Kokkos::Impl::ParallelFor<InitialIntegrateFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(InitialIntegrateFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0100693	0.001	375442000	0.0254012	0.0306466	0.00645347	0.00768462																				
+Kokkos::Impl::MemoryTracking::increment(void const*) at Kokkos_MemoryTracking.cpp	0.00954209	0.001	311497000	0.0240712	0.0306466	0.00611557	0.00768462																				
+																											
+THREAD 1																											
+Func Name	Total Energy(j)	Total Time(s)	Energy Efficiency(inst/joule)	% Core Energy	% Core Time	% Tot Energy	% Tot Time																				
+atomic_fetch_add<double> at Kokkos_Atomic_Fetch_Add.hpp	22.8546	1.935	301730000	59.5011	59.5385	14.6476	14.8697																				
+compute_halfneigh_threadedItem<0, 1> at force_lj.cpp	7.25476	0.613	296465000	18.8875	18.8615	4.64961	4.71067																				
+operator()<int, int> at Kokkos_View.hpp	3.41967	0.294	305057000	8.90297	9.04615	2.19168	2.25928																				
+Neighbor::build_Item(int const&) const at neighbor.cpp	3.1736	0.221	527383000	8.26235	6.8	2.03398	1.6983																				
+compute_halfneigh_threadedItem<1, 1> at force_lj.cpp	0.301393	0.026	296061000	0.784665	0.8	0.193165	0.1998																				
+Integrate::initialIntegrateItem(int const&) const at integrate.cpp	0.254249	0.026	258884000	0.661927	0.8	0.16295	0.1998																				
+?? at ??	0.239762	0.039	262551000	0.62421	1.2	0.153664	0.2997																				
+ViewAssignment<int const*, Kokkos::OpenMP, Kokkos::MemoryTraits<1u>, void, int**, Kokkos::LayoutRight, Kokkos::OpenMP, void> at Kokkos_ViewDefault.hpp	0.0936602	0.007	604593000	0.24384	0.215385	0.0600273	0.0537924																				
+Kokkos::Impl::ViewInit<Kokkos::View<int**, Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.0908624	0.005	605791000	0.236556	0.153846	0.0582342	0.0384231																				
+random at setup.cpp	0.079699	0.01	232565000	0.207493	0.307692	0.0510795	0.0768462																				
+Integrate::finalIntegrateItem(int const&) const at integrate.cpp	0.0789612	0.013	215405000	0.205572	0.4	0.0506066	0.0999001																				
+ForceZeroFunctor::operator()(int) const at force.h	0.0699754	0.007	301142000	0.182178	0.215385	0.0448476	0.0537924																				
+DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::LayoutRight, Kokkos::OpenMP, void, Kokkos::Impl::LayoutDefault>, 2>::operator()(int) const at types.h	0.0686901	0.005	217493000	0.178832	0.153846	0.0440238	0.0384231																				
+Kokkos::Impl::ParallelFor<ForceZeroFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(ForceZeroFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0667895	0.005	272509000	0.173884	0.153846	0.0428057	0.0384231																				
+operator[]<int> at Kokkos_View.hpp	0.0612757	0.006	532411000	0.159529	0.184615	0.0392719	0.0461077																				
+Atom::unpack_commItem(int const&) const at atom.cpp	0.0453424	0.005	337678000	0.118047	0.153846	0.0290602	0.0384231																				
+Atom::sortItem(int const&) const at atom.cpp	0.0354136	0.002	181550000	0.0921978	0.0615385	0.0226967	0.0153692																				
+Atom::pack_commItemPBC(int const&) const at atom.cpp	0.0285249	0.002	207016000	0.0742634	0.0615385	0.0182818	0.0153692																				
+Neighbor::binatomsItem(int const&) const at neighbor.cpp	0.0239176	0.002	307284000	0.0622686	0.0615385	0.0153289	0.0153692																				
+DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2>::operator()(int) const at types.h	0.0232321	0.002	317743000	0.0604838	0.0615385	0.0148896	0.0153692																				
+Neighbor::coord2bin(double, double, double) const at neighbor.cpp	0.020947	0.002	534434000	0.0545347	0.0615385	0.0134251	0.0153692																				
+Kokkos::Impl::ViewInit<Kokkos::View<double* [3], Kokkos::LayoutRight, Kokkos::OpenMP, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.0203604	0.004	369698000	0.0530074	0.123077	0.0130491	0.0307385																				
+Kokkos::Impl::ParallelFor<NeighborBinatomsFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(NeighborBinatomsFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0181555	0.002	517728000	0.047267	0.0615385	0.0116359	0.0153692																				
+Kokkos::Impl::ViewInit<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.0180856	0.002	154863000	0.047085	0.0615385	0.0115911	0.0153692																				
+at<long unsigned int, long unsigned int> at Kokkos_View.hpp	0.012914	0.002	510826000	0.033621	0.0615385	0.00827664	0.0153692																				
+Kokkos::Impl::MemoryTracking::increment(void const*) at Kokkos_MemoryTracking.cpp	0.00959058	0.001	311498000	0.0249687	0.0307692	0.00614665	0.00768462																				
+Comm::growsend(int) at comm.cpp	0.00930521	0.001	332986000	0.0242257	0.0307692	0.00596376	0.00768462																				
+Atom::unpack_reverseItem(int const&) const at atom.cpp	0.00903493	0.004	179816000	0.0235221	0.123077	0.00579054	0.0307385																				
+create_atoms(Atom&, int, int, int, double) at setup.cpp	0.0083039	0.001	279371000	0.0216189	0.0307692	0.00532201	0.00768462																				
+Kokkos::Impl::ParallelFor<InitialIntegrateFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(InitialIntegrateFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.00783139	0.001	375448000	0.0203887	0.0307692	0.00501918	0.00768462																				
+upper_bound at Kokkos_MemoryTracking.cpp	0.00577976	0.001	283319000	0.0150474	0.0307692	0.00370428	0.00768462																				
+Atom::pack_reverseItem(int const&) const at atom.cpp	0.00572874	0.004	219067000	0.0149145	0.123077	0.00367158	0.0307385																				
+																											
+THREAD 2																											
+Func Name	Total Energy(j)	Total Time(s)	Energy Efficiency(inst/joule)	% Core Energy	% Core Time	% Tot Energy	% Tot Time																				
+atomic_fetch_add<double> at Kokkos_Atomic_Fetch_Add.hpp	23.4345	1.984	293524000	59.7423	61.0462	15.0193	15.2463																				
+compute_halfneigh_threadedItem<0, 1> at force_lj.cpp	6.80314	0.574	293168000	17.3434	17.6615	4.36017	4.41097																				
+operator()<int, int> at Kokkos_View.hpp	3.2998	0.276	302688000	8.41228	8.49231	2.11486	2.12096																				
+Neighbor::build_Item(int const&) const at neighbor.cpp	3.18414	0.221	510054000	8.11742	6.8	2.04073	1.6983																				
+?? at ??	0.679225	0.051	231698000	1.73157	1.56923	0.435319	0.391916																				
+Integrate::initialIntegrateItem(int const&) const at integrate.cpp	0.332906	0.026	269368000	0.848686	0.8	0.213361	0.1998																				
+compute_halfneigh_threadedItem<1, 1> at force_lj.cpp	0.321712	0.026	276706000	0.82015	0.8	0.206187	0.1998																				
+Integrate::finalIntegrateItem(int const&) const at integrate.cpp	0.230102	0.016	222295000	0.586606	0.492308	0.147474	0.122954																				
+ForceZeroFunctor::operator()(int) const at force.h	0.105052	0.007	264694000	0.267813	0.215385	0.0673287	0.0537924																				
+Atom::unpack_reverseItem(int const&) const at atom.cpp	0.0979263	0.006	195094000	0.249646	0.184615	0.0627615	0.0461077																				
+ViewAssignment<int const*, Kokkos::OpenMP, Kokkos::MemoryTraits<1u>, void, int**, Kokkos::LayoutRight, Kokkos::OpenMP, void> at Kokkos_ViewDefault.hpp	0.0735775	0.006	617746000	0.187573	0.184615	0.0471562	0.0461077																				
+operator[]<int> at Kokkos_View.hpp	0.0727473	0.006	487359000	0.185457	0.184615	0.0466241	0.0461077																				
+Kokkos::Impl::ParallelFor<ForceZeroFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(ForceZeroFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.071841	0.005	288936000	0.183146	0.153846	0.0460433	0.0384231																				
+Kokkos::Impl::ViewInit<Kokkos::View<int**, Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.0680428	0.003	497562000	0.173463	0.0923077	0.043609	0.0230539																				
+Atom::pack_reverseItem(int const&) const at atom.cpp	0.0661414	0.004	218143000	0.168616	0.123077	0.0423903	0.0307385																				
+DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::LayoutRight, Kokkos::OpenMP, void, Kokkos::Impl::LayoutDefault>, 2>::operator()(int) const at types.h	0.0648891	0.005	214910000	0.165424	0.153846	0.0415878	0.0384231																				
+random at setup.cpp	0.0433915	0.007	270572000	0.110619	0.215385	0.0278098	0.0537924																				
+at<long unsigned int, long unsigned int> at Kokkos_View.hpp	0.0423558	0.004	651409000	0.107979	0.123077	0.027146	0.0307385																				
+Atom::pack_commItemPBC(int const&) const at atom.cpp	0.0332161	0.002	208136000	0.0846787	0.0615385	0.0212884	0.0153692																				
+Atom::sortItem(int const&) const at atom.cpp	0.0325794	0.002	186053000	0.0830555	0.0615385	0.0208803	0.0153692																				
+Atom::unpack_commItem(int const&) const at atom.cpp	0.0317454	0.003	331091000	0.0809295	0.0923077	0.0203458	0.0230539																				
+Neighbor::binatomsItem(int const&) const at neighbor.cpp	0.028203	0.003	345447000	0.0718987	0.0923077	0.0180755	0.0230539																				
+Kokkos::Impl::ViewInit<Kokkos::View<double* [3], Kokkos::LayoutRight, Kokkos::OpenMP, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.0193594	0.004	372886000	0.0493534	0.123077	0.0124075	0.0307385																				
+Kokkos::Impl::ViewInit<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.0189226	0.002	155123000	0.04824	0.0615385	0.0121276	0.0153692																				
+Kokkos::Impl::ParallelFor<FinalIntegrateFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(FinalIntegrateFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0124656	0.001	281028000	0.0317789	0.0307692	0.00798927	0.00768462																				
+DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2>::operator()(int) const at types.h	0.0116633	0.001	351947000	0.0297335	0.0307692	0.00747506	0.00768462																				
+Kokkos::Impl::ParallelFor<ForceComputeHalfneighThreadedFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(ForceComputeHalfneighThreadedFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0112207	0.001	326062000	0.0286053	0.0307692	0.00719142	0.00768462																				
+Kokkos::Impl::ParallelFor<NeighborBinatomsFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(NeighborBinatomsFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0102347	0.001	563433000	0.0260917	0.0307692	0.00655949	0.00768462																				
+Kokkos::Impl::ParallelFor<DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2>, unsigned long, Kokkos::OpenMP>::ParallelFor(DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2> const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.00885474	0.001	281031000	0.0225736	0.0307692	0.00567505	0.00768462																				
+create_atoms(Atom&, int, int, int, double) at setup.cpp	0.00870582	0.001	279372000	0.022194	0.0307692	0.00557961	0.00768462																				
+Neighbor::coord2bin(double, double, double) const at neighbor.cpp	0.00732837	0.001	368379000	0.0186824	0.0307692	0.00469679	0.00768462																				
+																											
+THREAD 3																											
+Func Name	Total Energy(j)	Total Time(s)	Energy Efficiency(inst/joule)	% Core Energy	% Core Time	% Tot Energy	% Tot Time																				
+atomic_fetch_add<double> at Kokkos_Atomic_Fetch_Add.hpp	23.2616	1.944	300067000	60.0271	59.8154	14.9085	14.9389																				
+compute_halfneigh_threadedItem<0, 1> at force_lj.cpp	6.95123	0.583	298680000	17.9378	17.9385	4.45508	4.48014																				
+Neighbor::build_Item(int const&) const at neighbor.cpp	3.17314	0.218	526528000	8.18836	6.70769	2.03368	1.67525																				
+operator()<int, int> at Kokkos_View.hpp	3.15336	0.271	312255000	8.13733	8.33846	2.021	2.08253																				
+?? at ??	0.7618	0.098	247717000	1.96584	3.01538	0.488241	0.753093																				
+compute_halfneigh_threadedItem<1, 1> at force_lj.cpp	0.304999	0.025	279813000	0.787059	0.769231	0.195476	0.192116																				
+Integrate::initialIntegrateItem(int const&) const at integrate.cpp	0.233905	0.025	263546000	0.603598	0.769231	0.149911	0.192116																				
+Integrate::finalIntegrateItem(int const&) const at integrate.cpp	0.108943	0.017	220185000	0.28113	0.523077	0.069822	0.130639																				
+Neighbor::binatomsItem(int const&) const at neighbor.cpp	0.104602	0.004	306935000	0.269929	0.123077	0.0670402	0.0307385																				
+ForceZeroFunctor::operator()(int) const at force.h	0.0829748	0.008	296972000	0.214119	0.246154	0.053179	0.061477																				
+ViewAssignment<int const*, Kokkos::OpenMP, Kokkos::MemoryTraits<1u>, void, int**, Kokkos::LayoutRight, Kokkos::OpenMP, void> at Kokkos_ViewDefault.hpp	0.0804147	0.006	618497000	0.207512	0.184615	0.0515382	0.0461077																				
+Kokkos::Impl::ViewInit<Kokkos::View<int**, Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.0682758	0.003	513889000	0.176187	0.0923077	0.0437583	0.0230539																				
+DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::LayoutRight, Kokkos::OpenMP, void, Kokkos::Impl::LayoutDefault>, 2>::operator()(int) const at types.h	0.065685	0.005	219546000	0.169502	0.153846	0.0420978	0.0384231																				
+operator[]<int> at Kokkos_View.hpp	0.0537978	0.005	605243000	0.138827	0.153846	0.0344793	0.0384231																				
+Kokkos::Impl::ViewInit<Kokkos::View<double* [3], Kokkos::LayoutRight, Kokkos::OpenMP, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.0447345	0.004	385151000	0.115438	0.123077	0.0286705	0.0307385																				
+at<long unsigned int, long unsigned int> at Kokkos_View.hpp	0.0425395	0.004	677259000	0.109774	0.123077	0.0272638	0.0307385																				
+Atom::sortItem(int const&) const at atom.cpp	0.0356263	0.002	180343000	0.0919346	0.0615385	0.0228331	0.0153692																				
+Atom::pack_commItemPBC(int const&) const at atom.cpp	0.0343494	0.003	240608000	0.0886396	0.0923077	0.0220147	0.0230539																				
+Kokkos::Impl::ParallelFor<ForceZeroFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(ForceZeroFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.034118	0.003	227176000	0.0880424	0.0923077	0.0218664	0.0230539																				
+Comm::border_sendItemA(int) const at comm.cpp	0.033167	0.002	279713000	0.0855884	0.0615385	0.0212569	0.0153692																				
+Atom::unpack_commItem(int const&) const at atom.cpp	0.0255627	0.003	337418000	0.0659651	0.0923077	0.0163832	0.0230539																				
+Atom::unpack_reverseItem(int const&) const at atom.cpp	0.0222363	0.006	216320000	0.0573812	0.184615	0.0142513	0.0461077																				
+Kokkos::Impl::ParallelFor<AtomUnpackReverseFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(AtomUnpackReverseFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0142877	0.001	98094500	0.0368698	0.0307692	0.00915707	0.00768462																				
+Kokkos::Impl::ParallelFor<DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2>, unsigned long, Kokkos::OpenMP>::ParallelFor(DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2> const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0124213	0.001	281022000	0.0320535	0.0307692	0.00796087	0.00768462																				
+Kokkos::Impl::ParallelFor<ForceComputeHalfneighThreadedFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(ForceComputeHalfneighThreadedFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.012282	0.001	326062000	0.0316941	0.0307692	0.00787162	0.00768462																				
+Kokkos::Impl::ParallelFor<NeighborBinatomsFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(NeighborBinatomsFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.0112927	0.001	563432000	0.029141	0.0307692	0.00723753	0.00768462																				
+DeepCopyFunctor<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2>::operator()(int) const at types.h	0.00926276	0.001	351947000	0.0239028	0.0307692	0.00593655	0.00768462																				
+Atom::pack_reverseItem(int const&) const at atom.cpp	0.00634007	0.004	216621000	0.0163607	0.123077	0.00406338	0.0307385																				
+Kokkos::Impl::ParallelFor<FinalIntegrateFunctor, unsigned long, Kokkos::OpenMP>::ParallelFor(FinalIntegrateFunctor const&, unsigned long) at Kokkos_OpenMP_Parallel.hpp	0.00576635	0.001	281038000	0.0148802	0.0307692	0.00369568	0.00768462																				
+Kokkos::Impl::ViewInit<Kokkos::View<double* [3], Kokkos::OpenMP, void, void, Kokkos::Impl::LayoutDefault>, 2u>::operator()(unsigned long) const at Kokkos_ViewSupport.hpp	0.00311283	0.001	216036000	0.00803275	0.0307692	0.00199503	0.00768462																				
+																											
+GLOBAL																											
+		Total Energy(j)	Total Time(s)	Energy Efficiency(inst/joule)	Elapsed Time(s)																						
+		156.029	13.013	314550000	3.70945																						
+																											
+																											
+																											
+																											
+																											
+																											
+																											
+																											
+																											
+																											
+																											
+																											
+																											
+																											
+																											
+						Core 1 Time	Core 1 Energy	Core 2 Time	Core 2 Energy	Core 3 Time	Core 3 Energy	Core 4 Time	Core 4 Energy														
+						14.4874	14.8851	14.6476	14.8697	15.0193	15.2463	14.9085	14.9389														
+						4.65987	4.6953	4.64961	4.71067	4.36017	4.41097	4.45508	4.48014														
+						2.29182	2.25159	2.19168	2.25928	2.11486	2.12096	2.03368	1.67525														
+						2.03142	1.6983	2.03398	1.6983	2.04073	1.6983	2.021	2.08253														
+						0.666533	0.430339	0.193165	0.1998	0.435319	0.391916	0.488241	0.753093														
+						0.221011	0.1998	0.16295	0.1998	0.213361	0.1998	0.195476	0.192116														
+						0.194243	0.1998	0.153664	0.2997	0.206187	0.1998	0.149911	0.192116														
+						0.128114	0.0768462	0.0600273	0.0537924	0.147474	0.122954	0.069822	0.130639														
+																											
+						Core 1	Core 2	Core 3	Core 4																		
+						-2.7079751468	-1.5048801889	-1.5000528653	-0.2037028351																		
+						-0.7574421416	-1.3046618264	-1.1583442973	-0.5609263118																		
+						1.7709165583	-3.0375469562	-0.2880197931	19.3279463349																		
+						17.8630031209	17.9879323095	18.3165152459	-2.9988814508																		
+						43.0668300403	-3.3768910717	10.4935115173	-42.6721575338																		
+						10.0810102398	-20.3170227429	6.5645111712	1.733781915																		
+						-2.8205043612	-64.4232890128	3.1464061657	-24.6793381809																		
+						50.0270784279	10.9557484337	18.134216871	-60.6771391942																		
+																											
+						Core 1	Core 2	Core 3	Core 4																		
+						2.7079751468	1.5048801889	1.5000528653	0.2037028351																		
+						0.7574421416	1.3046618264	1.1583442973	0.5609263118																		
+						1.7709165583	3.0375469562	0.2880197931	19.3279463349																		
+						17.8630031209	17.9879323095	18.3165152459	2.9988814508																		
+						43.0668300403	3.3768910717	10.4935115173	42.6721575338																		
+						10.0810102398	20.3170227429	6.5645111712	1.733781915																		
+						2.8205043612	64.4232890128	3.1464061657	24.6793381809																		
+						50.0270784279	10.9557484337	18.134216871	60.6771391942																		
